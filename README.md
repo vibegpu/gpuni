@@ -1,0 +1,138 @@
+# PolyKernel
+
+PolyKernel is a minimal **CUDA-truth kernel dialect**:
+- Kernels compile as-is with `nvcc` and `hipcc` (no CUDA-side translation).
+- The same sources can be rendered into a single-file **OpenCL C 1.2** program.
+
+**Package:** `polykernel.h` + `tools/render.c` (+ optional `skills/`).
+
+## Why PolyKernel
+
+- **One kernel source:** write once in CUDA style, reuse for CUDA/HIP/OpenCL 1.2.
+- **OpenCL 1.2 as baseline:** forces the “portable surface” (explicit address spaces, uniform barriers).
+- **No kernel `#ifdef` maze:** backend differences live in `polykernel.h` and the render step.
+- **AI-friendly:** fixed templates + hard rules reduce ambiguity and make output verifiable.
+
+## Quickstart
+
+Write a kernel (typically `*.pk.cu`):
+
+```cpp
+#include "polykernel.h"
+
+PK_EXTERN_C __global__ void pk_saxpy(int n,
+                                    __global float* y,
+                                    __global const float* x,
+                                    float a) {
+  int i = (int)(blockIdx.x * blockDim.x + threadIdx.x);
+  if (i < n) y[i] = a * x[i] + y[i];
+}
+```
+
+Build / render:
+
+```bash
+# OpenCL C 1.2 (render to a single .cl)
+cc -O2 -std=c99 -o tools/render tools/render.c
+tools/render my_kernel.pk.cu -o my_kernel.cl
+```
+
+## Verification
+
+```bash
+# CUDA / HIP (no translation, if you have the toolchains)
+nvcc  -I. -c my_kernel.pk.cu
+hipcc -I. -c my_kernel.pk.cu
+
+# OpenCL C 1.2 (optional syntax-check if you have clang)
+clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl
+```
+
+## Dialect contract (must)
+
+- **Entry point:** `PK_EXTERN_C __global__ void pk_<name>(...)`
+- **Include:** only `#include "polykernel.h"` in dialect kernels (avoid other includes on the OpenCL path)
+- **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
+- **CUDA/C99-first naming:** write kernels in CUDA/C99 spellings; `polykernel.h` maps them for OpenCL:
+  - Prefer `sinf/expf/...` and `atomicAdd/atomicCAS/...` in kernels (avoid `pk_*` when a CUDA spelling exists).
+  - Use `pk_*` only when OpenCL 1.2 needs extra code to emulate missing semantics (e.g. fixed-point float accumulation, `u64` add).
+- **OpenCL 1.2 address spaces (critical):** annotate every non-private pointer type with `__global` / `__local` / `__constant`:
+  - kernel parameters
+  - pointer aliases/temporaries (`p = x + off`)
+  - helper function pointer arguments
+  - These are no-ops under CUDA/HIP via `polykernel.h` and required under OpenCL.
+  - Synonyms exist (legacy): `PK_GLOBAL` / `PK_LOCAL` / `PK_CONSTANT`, `PK_*_PTR(T)`; prefer `__global/__local/__constant` in kernels.
+- **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space)
+- **Uniform barriers:** every `__syncthreads()` must be reached by the whole block/work-group (no divergent barrier / early return)
+- **Correctness-first:** don’t rely on warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups)
+- **ABI/layout:** don’t store `float3/int3/...3` in global/constant buffers or structs (use `float4` or SoA)
+
+## OpenCL 1.2 pointer rule (the one that bites)
+
+OpenCL 1.2 has **no generic pointer**: an unqualified pointer defaults to `__private`, so aliases must keep address space:
+
+```cpp
+// x is __global; p must also be __global (otherwise it becomes __private in OpenCL)
+__global const float* p = x + off;
+
+__shared__ float tile[256];
+__local float* t = tile;
+```
+
+## What `polykernel.h` provides (PK_DIALECT_VERSION=1)
+
+- **Backends:** `PK_BACKEND_CUDA`, `PK_BACKEND_HIP`, `PK_BACKEND_OPENCL`, `PK_BACKEND_HOST`
+- **CUDA-style builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
+- **Mapped keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
+- **Address-space helpers:** `__global/__local/__constant`, `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`
+- **Utilities:** `PK_RESTRICT`, `PK_INLINE`, `PK_EXTERN_C`, `PK_BIND_DYNAMIC_SMEM(ptr)`
+- **Math:** CUDA-style float math (`sinf/cosf/expf/logf/powf/...` + `rsqrtf/sqrtf/fabsf/fminf/fmaxf/fmaf`) is mapped for OpenCL
+
+### Atomics (portable baseline)
+
+OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, PolyKernel uses the same idea as OpenMM:
+**fixed-point(Q32.32) + integer atomics**.
+
+Provided APIs:
+- `atomicAdd/atomicSub/atomicExch/atomicMin/atomicMax/atomicAnd/atomicOr/atomicXor/atomicCAS` (CUDA-style; **`int`/`unsigned int` only** on the portable OpenCL 1.2 baseline)
+- `pk_atomic_add_u64` (returns `void`; OpenCL may require int64 atomics support, else uses a portable accumulation fallback)
+- `pk_atomic_add_f32` (OpenCL 1.2 CAS fallback; correctness-first, slower than fixed-point)
+- `pk_real_to_fixed_q32_32`, `pk_fixed_q32_32_to_real`, `pk_atomic_add_fixed_q32_32`
+
+Minimal usage pattern:
+
+```cpp
+// acc points to a Q32.32 buffer (pk_u64 per element)
+pk_atomic_add_fixed_q32_32(acc + i, value);
+```
+
+## Dynamic shared memory (portable ABI)
+
+OpenCL needs an explicit `__local` kernel argument; CUDA/HIP use `extern __shared__`:
+
+```cpp
+PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
+  PK_BIND_DYNAMIC_SMEM(pk_smem);  // OpenCL: no-op; CUDA/HIP: binds extern __shared__
+  __local float* s = pk_smem;
+  /* ... */
+}
+```
+
+Host-side contract:
+- CUDA/HIP: pass `smem_bytes` as the dynamic shared size, and pass `NULL` for `pk_smem`
+- OpenCL: `clSetKernelArg(pk_smem_arg_index, smem_bytes, NULL)`
+
+Note (important):
+- Prefer a **typed** local parameter (`__local float*`, `__local int*`, ...) for dynamic shared memory.
+  Some OpenCL drivers may only guarantee alignment based on the pointee type; `__local unsigned char*` + cast can crash.
+
+## Not in Scope (v1)
+
+- Warp/subgroup intrinsics for correctness (`__shfl*`, cooperative groups): use `__shared__/__local + __syncthreads()`.
+- Float atomics as a required feature: use fixed-point(Q32.32) helpers.
+- CUDA-only features (tensor cores/WMMA, dynamic parallelism, inline PTX, textures/surfaces).
+- “Big library” layers (FFT/BLAS/Thrust-like APIs): bind external libs per backend if needed.
+
+## AI (optional)
+
+- Codex/Claude Code skill: `skills/polykernel/SKILL.md`
