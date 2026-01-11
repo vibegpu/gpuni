@@ -1,6 +1,15 @@
 ---
 name: polykernel
-description: Write, refactor, and review PolyKernel CUDA-truth dialect GPU kernels and shims that must compile as CUDA/HIP and be renderable to OpenCL C 1.2. Use for authoring `.pk.cu` kernels with explicit OpenCL 1.2 address spaces (`__global/__local/__constant`), uniform barriers, C-like subset restrictions, and for generating OpenCL-ready sources via `tools/render.c`.
+description: >
+  Write, refactor, and review PolyKernel CUDA-truth dialect GPU kernels that compile as CUDA/HIP
+  and render to OpenCL C 1.2.
+
+  Use when: creating/editing `.pk.cu` kernels; adding OpenCL 1.2 address-space annotations
+  (`__global/__local/__constant`) on pointer params/aliases; ensuring uniform barriers
+  (`__syncthreads()`); implementing portable atomics (`pk_atomic_*`); using/debugging the renderer
+  (`tools/render.c`) and OpenCL address-space errors.
+
+  Keywords: polykernel, dialect CUDA, 方言CUDA, OpenCL 1.2, HIP, 渲染, render, pk.cu, polykernel.h.
 ---
 
 # PolyKernel
@@ -11,18 +20,26 @@ Use the minimal PolyKernel dialect to write one CUDA-style kernel source (source
 - Compiles directly with `nvcc` and `hipcc` (no translation step)
 - Can be rendered into a single-file OpenCL C 1.2 source via the PolyKernel renderer
 
+## Repo Guardrails (this repo)
+
+- Don’t run `git` commands in this environment.
+- Treat `tmp/` as read-only reference snapshots; don’t copy/paste code from `tmp/` into publishable code.
+
 ## Workflow (AI-safe)
 
-1) Find the PolyKernel package root (it contains `polykernel.h` and `tools/render.c`).  
+1) Locate the PolyKernel package root (contains `polykernel.h` and `tools/render.c`). In this repo it is `polykernel/` (then run commands from there).  
 2) Write a kernel as CUDA (file typically `*.pk.cu`) and include `#include "polykernel.h"`.  
 3) Apply the dialect checklist below before iterating.  
 4) Validate by compiling (CUDA/HIP) and rendering (OpenCL).
 
-Build and run the renderer (run from the directory that contains `polykernel.h`):
+## Quickstart (render to OpenCL C 1.2)
+
+Run from the PolyKernel package root (the directory that contains `polykernel.h`).
 
 ```bash
-cc -O2 -std=c99 -o tools/render tools/render.c
-tools/render my_kernel.pk.cu -o my_kernel.cl
+mkdir -p tmp/bin
+cc -O2 -std=c99 -o tmp/bin/pk_render tools/render.c
+tmp/bin/pk_render path/to/kernel.pk.cu -o tmp/kernel.cl
 ```
 
 ## Dialect Checklist (must)
@@ -59,6 +76,34 @@ __shared__ float tile[256];
 __local float* t = tile;
 ```
 
+### Common Mistakes (fast rejects)
+
+#### Missing address space on pointer aliases
+
+```cpp
+// WRONG (OpenCL): p becomes __private float*, cannot point to __global memory
+float* p = x + off;
+
+// CORRECT
+__global float* p = x + off;
+```
+
+#### Divergent barrier
+
+```cpp
+// WRONG: not all threads reach the barrier
+if (threadIdx.x < 128) __syncthreads();
+
+// CORRECT: all threads reach the barrier
+__syncthreads();
+if (threadIdx.x < 128) { /* ... */ }
+```
+
+### Prefer CUDA/C99 spellings
+
+- Prefer CUDA/C99 spellings in kernels (math `sinf/expf/...`, integer atomics `atomicAdd/atomicCAS/...`).
+- Use `pk_*` only when OpenCL 1.2 needs extra code to emulate missing semantics (e.g. float atomics, `u64` add).
+
 ### Synchronization correctness
 
 - Ensure every `__syncthreads()` is reached uniformly by the whole block/work-group (no divergent barrier, no early return before a barrier).
@@ -67,25 +112,40 @@ __local float* t = tile;
 
 - Avoid templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library usage.
 - Avoid warp/subgroup intrinsics for correctness (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups).
+- Avoid storing `float3/int3/...3` in global/constant buffers or structs (layout/ABI pitfalls); use `float4` or SoA.
 
 ## Dynamic shared memory pattern (portable ABI)
 
-- Put dynamic shared/local memory as an explicit kernel argument: `__local unsigned char* pk_smem`
+- Put dynamic shared/local memory as an explicit kernel argument: `__local T* pk_smem`
 - Call `PK_BIND_DYNAMIC_SMEM(pk_smem)` to bind CUDA/HIP `extern __shared__` (OpenCL is a no-op).
 
 ```cpp
-PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local unsigned char* pk_smem) {
+PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
   PK_BIND_DYNAMIC_SMEM(pk_smem);
-  __local float* sdata = (__local float*)pk_smem;
+  __local float* sdata = pk_smem;
   /* ... */
 }
 ```
+
+## Validation (fast)
+
+- CUDA/HIP compile (if toolchains exist): make sure `-I` points to the directory that contains `polykernel.h`.
+  - Example (this repo): `nvcc  -Ipolykernel -c path/to/kernel.pk.cu`
+  - Example (this repo): `hipcc -Ipolykernel -c path/to/kernel.pk.cu`
+- OpenCL render: `tmp/bin/pk_render path/to/kernel.pk.cu -o tmp/kernel.cl`
+  - Optional syntax-check: `clang -x cl -cl-std=CL1.2 -fsyntax-only tmp/kernel.cl`
 
 ## Review Rules (what to reject)
 
 - Reject any change that makes kernels “not valid CUDA without a CUDA-side translation step”.
 - Reject any attempt to “infer” OpenCL address spaces automatically for local pointer aliases; require explicit annotation.
 - Reject any barrier placed in control flow that some threads may skip.
+
+## Where to look (progressive disclosure)
+
+- Dialect contract + API list: `README.md` (search: "Dialect contract", "Atomics", "Dynamic shared")
+- Exact mappings/atomics: `polykernel.h` (search: "PK_BACKEND_", "atomic", "fixed_q32_32")
+- Renderer behavior/options: `tools/render.c` (search: "Usage", "render")
 
 ## Files
 

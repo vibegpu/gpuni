@@ -1,5 +1,9 @@
 # PolyKernel
 
+Start here:
+- Include `polykernel.h` in every dialect kernel (`#include "polykernel.h"`).
+- For AI coding (Codex/Claude Code), load/activate the `polykernel` skill: `skills/polykernel/SKILL.md` (prompt tip: “use `$polykernel`”).
+
 PolyKernel is a minimal **CUDA-truth kernel dialect**:
 - Kernels compile as-is with `nvcc` and `hipcc` (no CUDA-side translation).
 - The same sources can be rendered into a single-file **OpenCL C 1.2** program.
@@ -132,7 +136,3 @@ Note (important):
 - Float atomics as a required feature: use fixed-point(Q32.32) helpers.
 - CUDA-only features (tensor cores/WMMA, dynamic parallelism, inline PTX, textures/surfaces).
 - “Big library” layers (FFT/BLAS/Thrust-like APIs): bind external libs per backend if needed.
-
-## AI (optional)
-
-- Codex/Claude Code skill: `skills/polykernel/SKILL.md`
