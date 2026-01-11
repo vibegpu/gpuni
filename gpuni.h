@@ -1,7 +1,7 @@
-#ifndef POLYKERNEL_H
-#define POLYKERNEL_H
+#ifndef GPUNI_H
+#define GPUNI_H
 
-/* PolyKernel CUDA-truth kernel dialect.
+/* gpuni CUDA-truth kernel dialect.
  *
  * Naming principle:
  * - Prefer CUDA/C99 spellings in kernels (math `*f`, `atomicAdd/atomicCAS/...`, etc.).
@@ -43,9 +43,9 @@ typedef unsigned long long pk_u64;
 #if defined(PK_BACKEND_OPENCL)
 
 #  if defined(__OPENCL_C_VERSION__) && __OPENCL_C_VERSION__ < 120
-#    error "PolyKernel requires OpenCL C 1.2+"
+#    error "gpuni requires OpenCL C 1.2+"
 #  elif defined(__OPENCL_VERSION__) && __OPENCL_VERSION__ < 120
-#    error "PolyKernel requires OpenCL C 1.2+"
+#    error "gpuni requires OpenCL C 1.2+"
 #  endif
 
 /* Enable atomics extensions when available (OpenCL 1.2 core still works). */

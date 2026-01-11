@@ -166,9 +166,9 @@ static int pk_parse_include(const char *line, char *out_delim, char **out_path) 
   return 1;
 }
 
-static char *pk_resolve_polykernel_include(const pk_str_list *include_dirs, const char *include_path) {
+static char *pk_resolve_gpuni_include(const pk_str_list *include_dirs, const char *include_path) {
   size_t i;
-  if (strcmp(include_path, "polykernel/dialect.h") == 0) include_path = "polykernel.h";
+  if (strcmp(include_path, "gpuni/dialect.h") == 0) include_path = "gpuni.h";
   for (i = 0; i < include_dirs->count; ++i) {
     char *candidate = pk_join_path(include_dirs->items[i], include_path);
     if (pk_file_exists(candidate)) return candidate;
@@ -204,10 +204,9 @@ static void pk_render_file(FILE *out,
     ++line_no;
 
     if (pk_parse_include(line, &delim, &inc)) {
-      int is_polykernel =
-        (delim == '"' && (strncmp(inc, "polykernel/", 10) == 0 || strcmp(inc, "polykernel.h") == 0));
-      if (is_polykernel) {
-        char *resolved = pk_resolve_polykernel_include(include_dirs, inc);
+      int is_gpuni = (delim == '"' && (strncmp(inc, "gpuni/", 6) == 0 || strcmp(inc, "gpuni.h") == 0));
+      if (is_gpuni) {
+        char *resolved = pk_resolve_gpuni_include(include_dirs, inc);
         if (!resolved) {
           fprintf(stderr, "render: include not found: \"%s\" (from %s:%lu)\n", inc, path, line_no);
           exit(2);
@@ -233,8 +232,8 @@ static void pk_usage(FILE *out) {
   fprintf(out,
           "usage: render [options] <input>\n"
           "\n"
-          "Renders a restricted PolyKernel CUDA-truth kernel source into a single-file\n"
-          "OpenCL-friendly source by inlining \"polykernel.h\" and includes under \"polykernel/\".\n"
+          "Renders a restricted gpuni CUDA-truth kernel source into a single-file\n"
+          "OpenCL-friendly source by inlining \"gpuni.h\" and includes under \"gpuni/\".\n"
           "\n"
           "options:\n"
           "  -I <dir>        Add include directory (default: auto-detect repo root, else .)\n"
@@ -251,14 +250,14 @@ static char *pk_find_default_include_dir(const char *input_path) {
 
   for (;;) {
     {
-      char *probe = pk_join_path(cursor, "polykernel.h");
+      char *probe = pk_join_path(cursor, "gpuni.h");
       int ok = pk_file_exists(probe);
       free(probe);
       if (ok) return cursor;
     }
     {
-      char *pkg_dir = pk_join_path(cursor, "polykernel");
-      char *probe = pk_join_path(pkg_dir, "polykernel.h");
+      char *pkg_dir = pk_join_path(cursor, "gpuni");
+      char *probe = pk_join_path(pkg_dir, "gpuni.h");
       int ok = pk_file_exists(probe);
       free(probe);
       if (ok) {
@@ -269,7 +268,7 @@ static char *pk_find_default_include_dir(const char *input_path) {
     }
     {
       char *inc_dir = pk_join_path(cursor, "include");
-      char *probe = pk_join_path(inc_dir, "polykernel.h");
+      char *probe = pk_join_path(inc_dir, "gpuni.h");
       int ok = pk_file_exists(probe);
       free(probe);
       if (ok) {

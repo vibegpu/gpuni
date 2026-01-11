@@ -1,20 +1,20 @@
-# PolyKernel
+# gpuni
 
 Start here:
-- Include `polykernel.h` in every dialect kernel (`#include "polykernel.h"`).
-- For AI coding (Codex/Claude Code), load/activate the `polykernel` skill: `skills/polykernel/SKILL.md` (prompt tip: “use `$polykernel`”).
+- Include `gpuni.h` in every dialect kernel (`#include "gpuni.h"`).
+- For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt tip: “use `$gpuni`”).
 
-PolyKernel is a minimal **CUDA-truth kernel dialect**:
+gpuni is a minimal **CUDA-truth kernel dialect**:
 - Kernels compile as-is with `nvcc` and `hipcc` (no CUDA-side translation).
 - The same sources can be rendered into a single-file **OpenCL C 1.2** program.
 
-**Package:** `polykernel.h` + `tools/render.c` (+ optional `skills/`).
+**Package:** `gpuni.h` + `tools/render.c` (+ optional `skills/`).
 
-## Why PolyKernel
+## Why gpuni
 
 - **One kernel source:** write once in CUDA style, reuse for CUDA/HIP/OpenCL 1.2.
 - **OpenCL 1.2 as baseline:** forces the “portable surface” (explicit address spaces, uniform barriers).
-- **No kernel `#ifdef` maze:** backend differences live in `polykernel.h` and the render step.
+- **No kernel `#ifdef` maze:** backend differences live in `gpuni.h` and the render step.
 - **AI-friendly:** fixed templates + hard rules reduce ambiguity and make output verifiable.
 
 ## Quickstart
@@ -22,7 +22,7 @@ PolyKernel is a minimal **CUDA-truth kernel dialect**:
 Write a kernel (typically `*.pk.cu`):
 
 ```cpp
-#include "polykernel.h"
+#include "gpuni.h"
 
 PK_EXTERN_C __global__ void pk_saxpy(int n,
                                     __global float* y,
@@ -55,16 +55,16 @@ clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl
 ## Dialect contract (must)
 
 - **Entry point:** `PK_EXTERN_C __global__ void pk_<name>(...)`
-- **Include:** only `#include "polykernel.h"` in dialect kernels (avoid other includes on the OpenCL path)
+- **Include:** only `#include "gpuni.h"` in dialect kernels (avoid other includes on the OpenCL path)
 - **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
-- **CUDA/C99-first naming:** write kernels in CUDA/C99 spellings; `polykernel.h` maps them for OpenCL:
+- **CUDA/C99-first naming:** write kernels in CUDA/C99 spellings; `gpuni.h` maps them for OpenCL:
   - Prefer `sinf/expf/...` and `atomicAdd/atomicCAS/...` in kernels (avoid `pk_*` when a CUDA spelling exists).
   - Use `pk_*` only when OpenCL 1.2 needs extra code to emulate missing semantics (e.g. fixed-point float accumulation, `u64` add).
 - **OpenCL 1.2 address spaces (critical):** annotate every non-private pointer type with `__global` / `__local` / `__constant`:
   - kernel parameters
   - pointer aliases/temporaries (`p = x + off`)
   - helper function pointer arguments
-  - These are no-ops under CUDA/HIP via `polykernel.h` and required under OpenCL.
+  - These are no-ops under CUDA/HIP via `gpuni.h` and required under OpenCL.
   - Synonyms exist (legacy): `PK_GLOBAL` / `PK_LOCAL` / `PK_CONSTANT`, `PK_*_PTR(T)`; prefer `__global/__local/__constant` in kernels.
 - **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space)
 - **Uniform barriers:** every `__syncthreads()` must be reached by the whole block/work-group (no divergent barrier / early return)
@@ -83,7 +83,7 @@ __shared__ float tile[256];
 __local float* t = tile;
 ```
 
-## What `polykernel.h` provides (PK_DIALECT_VERSION=1)
+## What `gpuni.h` provides (PK_DIALECT_VERSION=1)
 
 - **Backends:** `PK_BACKEND_CUDA`, `PK_BACKEND_HIP`, `PK_BACKEND_OPENCL`, `PK_BACKEND_HOST`
 - **CUDA-style builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
@@ -94,7 +94,7 @@ __local float* t = tile;
 
 ### Atomics (portable baseline)
 
-OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, PolyKernel uses the same idea as OpenMM:
+OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, gpuni uses the same idea as OpenMM:
 **fixed-point(Q32.32) + integer atomics**.
 
 Provided APIs:
