@@ -1,5 +1,6 @@
 # PolyKernel
 
+
 PolyKernel is a minimal **CUDA-truth kernel dialect**:
 - Kernels compile as-is with `nvcc` and `hipcc` (no CUDA-side translation).
 - The same sources can be rendered into a single-file **OpenCL C 1.2** program.
