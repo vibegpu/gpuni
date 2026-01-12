@@ -4,7 +4,7 @@ A small CUDA-truth kernel dialect for cross-platform many-core GPU compute (CUDA
 
 **For AI coding (Codex/Claude Code):** load the `gpuni` skill at `skills/gpuni/SKILL.md` (prompt: use `$gpuni`).
 
-**Package:** `gpuni.h` + `tools/render.c` (+ optional `gpunih.h` for host launch)
+**Package:** `gpuni.h` + `tools/render.c`
 
 ## Kernel Example
 
@@ -75,11 +75,14 @@ __device__ float my_helper(GU_GLOBAL const float* p) { return p[0] * 2.0f; }
 gu_real x;  // float by default, double if GU_USE_DOUBLE and GU_HAS_FP64
 ```
 
-## Host API (`gpunih.h`)
+## Host API
+
+Enable host API by defining `GUH_CUDA`, `GUH_HIP`, or `GUH_OPENCL` before including `gpuni.h`.
 
 ```cpp
-#include "gpunih.h"
-#include "saxpy.gu.h"  // always include
+#define GUH_CUDA  // or GUH_HIP, GUH_OPENCL
+#include "gpuni.h"
+#include "saxpy.gu.h"
 
 #if defined(GUH_CUDA) || defined(GUH_HIP)
 extern "C" __global__ void gu_saxpy(int, float*, const float*, float);
@@ -109,8 +112,8 @@ int main() {
 }
 ```
 
-OpenCL build: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy.gu.h`
-OpenCL host build: `cc -DGUH_OPENCL host.c -lOpenCL`
+Render for OpenCL: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy.gu.h`
+Host build: `nvcc -DGUH_CUDA host.cu` / `hipcc -DGUH_HIP host.cu` / `cc -DGUH_OPENCL host.c -lOpenCL`
 
 Also: `gu_d2d(&ctx, dst, src, n)` for device-to-device copy.
 
