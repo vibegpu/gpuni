@@ -3,7 +3,7 @@
 gpuni is **AI-first** and built for **cross-platform many-core GPU computing**: a small, explicit CUDA-truth kernel dialect that targets CUDA, HIP, and OpenCL C 1.2.
 
 Start here:
-- Write kernels as `*.pk.cu` and follow **Dialect contract (must)** below.
+- Write kernels as `*.gu.cu` and follow **Dialect contract (must)** below.
 - For AI coding (Codex/Claude Code), activate the `gpuni` skill: `skills/gpuni/SKILL.md` (Codex: use `$gpuni`; Claude Code: say `Use the gpuni skill`).
 
 **Package:** `gpuni.h` + `tools/render.c` (+ optional `gpunih.h`, `skills/`).
@@ -16,12 +16,12 @@ Start here:
 
 ## Quickstart
 
-Write a kernel (typically `*.pk.cu`):
+Write a kernel (typically `*.gu.cu`):
 
 ```cpp
 #include "gpuni.h"
 
-PK_EXTERN_C __global__ void pk_saxpy(int n,
+GU_EXTERN_C __global__ void gu_saxpy(int n,
                                     __global float* y,
                                     __global const float* x,
                                     float a) {
@@ -35,24 +35,24 @@ Build / render:
 ```bash
 # OpenCL C 1.2 (render to a single .cl)
 cc -O2 -std=c99 -o tools/render tools/render.c
-tools/render my_kernel.pk.cu -o my_kernel.cl
+tools/render my_kernel.gu.cu -o my_kernel.cl
 ```
 
 Optional sanity checks (no runtime required):
 
 ```bash
-nvcc  -I. -c my_kernel.pk.cu
-hipcc -I. -c my_kernel.pk.cu
+nvcc  -I. -c my_kernel.gu.cu
+hipcc -I. -c my_kernel.gu.cu
 clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl  # optional
 ```
 
 ## Dialect contract (must)
 
-- **Entry point:** `PK_EXTERN_C __global__ void pk_<name>(...)`
+- **Entry point:** `GU_EXTERN_C __global__ void gu_<name>(...)`
 - **Include:** only `#include "gpuni.h"` in dialect kernels (avoid other includes on the OpenCL path)
 - **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
-- **CUDA/C99 spellings in kernels:** use `sinf/expf/...` and `atomicAdd/atomicCAS/...`; use `pk_*` only for real OpenCL 1.2 gaps.
-- **Pointer address spaces (OpenCL 1.2):** annotate every non-private pointer with `__global/__local/__constant` (params + aliases + helper args). Required for OpenCL; no-ops under CUDA/HIP via `gpuni.h`. Prefer `__global/__local/__constant`; synonyms: `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`.
+- **CUDA/C99 spellings in kernels:** use `sinf/expf/...` and `atomicAdd/atomicCAS/...`; use `gu_*` only for real OpenCL 1.2 gaps.
+- **Pointer address spaces (OpenCL 1.2):** annotate every non-private pointer with `__global/__local/__constant` (params + aliases + helper args). Required for OpenCL; no-ops under CUDA/HIP via `gpuni.h`. Prefer `__global/__local/__constant`; synonyms: `GU_GLOBAL/GU_LOCAL/GU_CONSTANT`, `GU_*_PTR(T)`.
 - **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space qualifier in OpenCL)
 - **Uniform barriers:** every `__syncthreads()` is reached by the whole block/work-group (no divergent barrier / early return)
 - **Correctness-first:** don’t rely on warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups)
@@ -70,14 +70,14 @@ __shared__ float tile[256];
 __local float* t = tile;
 ```
 
-## What `gpuni.h` provides (PK_DIALECT_VERSION=1)
+## What `gpuni.h` provides (GU_DIALECT_VERSION=1)
 
-- **Backends/caps:** `PK_BACKEND_{CUDA,HIP,OPENCL,HOST}`, `PK_HAS_{FP64,I64_ATOMICS,LOCAL_ATOMICS}`
-- **Types:** `pk_{i32,u32,i64,u64}`, `pk_real` (default `float`; define `PK_USE_DOUBLE` and check `PK_REAL_IS_*`)
+- **Backends/caps:** `GU_BACKEND_{CUDA,HIP,OPENCL,HOST}`, `GU_HAS_{FP64,I64_ATOMICS,LOCAL_ATOMICS}`
+- **Types:** `gu_{i32,u32,i64,u64}`, `gu_real` (default `float`; define `GU_USE_DOUBLE` and check `GU_REAL_IS_*`)
 - **Builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
 - **Keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
-- **Address spaces:** `__global/__local/__constant`, plus legacy `PK_*` helpers
-- **Utilities:** `PK_RESTRICT`, `PK_INLINE`, `PK_EXTERN_C`, `PK_BIND_DYNAMIC_SMEM(ptr)`
+- **Address spaces:** `__global/__local/__constant`, plus legacy `GU_*` helpers
+- **Utilities:** `GU_RESTRICT`, `GU_INLINE`, `GU_EXTERN_C`, `GU_BIND_DYNAMIC_SMEM(ptr)`
 - **Math:** CUDA-style `*f` float math is mapped for OpenCL
 
 ### Atomics (portable baseline)
@@ -86,15 +86,15 @@ OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation,
 
 Provided APIs:
 - `atomicAdd/atomicSub/atomicExch/atomicMin/atomicMax/atomicAnd/atomicOr/atomicXor/atomicCAS` (CUDA-style; **`int`/`unsigned int` only** on the portable OpenCL 1.2 baseline)
-- `pk_atomic_add_u64` (returns `void`; OpenCL may require int64 atomics support, else uses a portable accumulation fallback)
-- `pk_atomic_add_f32` (OpenCL 1.2 CAS fallback; correctness-first, slower than fixed-point)
-- `pk_real_to_fixed_q32_32`, `pk_fixed_q32_32_to_real`, `pk_atomic_add_fixed_q32_32`
+- `gu_atomic_add_u64` (returns `void`; OpenCL may require int64 atomics support, else uses a portable accumulation fallback)
+- `gu_atomic_add_f32` (OpenCL 1.2 CAS fallback; correctness-first, slower than fixed-point)
+- `gu_real_to_fixed_q32_32`, `gu_fixed_q32_32_to_real`, `gu_atomic_add_fixed_q32_32`
 
 Minimal usage pattern:
 
 ```cpp
-// acc points to a Q32.32 buffer (pk_u64 per element)
-pk_atomic_add_fixed_q32_32(acc + i, value);
+// acc points to a Q32.32 buffer (gu_u64 per element)
+gu_atomic_add_fixed_q32_32(acc + i, value);
 ```
 
 ### Dynamic shared memory (portable ABI)
@@ -102,16 +102,16 @@ pk_atomic_add_fixed_q32_32(acc + i, value);
 OpenCL needs an explicit `__local` kernel argument; CUDA/HIP use `extern __shared__`:
 
 ```cpp
-PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
-  PK_BIND_DYNAMIC_SMEM(pk_smem);  // OpenCL: no-op; CUDA/HIP: binds extern __shared__
-  __local float* s = pk_smem;
+GU_EXTERN_C __global__ void gu_reduce_sum(/* ... */, __local float* gu_smem) {
+  GU_BIND_DYNAMIC_SMEM(gu_smem);  // OpenCL: no-op; CUDA/HIP: binds extern __shared__
+  __local float* s = gu_smem;
   /* ... */
 }
 ```
 
 Host-side contract:
-- CUDA/HIP: set `smem_bytes` as the dynamic shared size; pass `NULL` for `pk_smem`
-- OpenCL: `clSetKernelArg(pk_smem_arg_index, smem_bytes, NULL)`
+- CUDA/HIP: set `smem_bytes` as the dynamic shared size; pass `NULL` for `gu_smem`
+- OpenCL: `clSetKernelArg(gu_smem_arg_index, smem_bytes, NULL)`
 
 Note (important):
 - Prefer a **typed** local parameter (`__local float*`, `__local int*`, ...) for dynamic shared memory.

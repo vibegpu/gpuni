@@ -7,20 +7,20 @@
 #include <stddef.h>
 
 /* Backend detection */
-#if !defined(PKH_CUDA) && !defined(PKH_HIP) && !defined(PKH_OPENCL)
+#if !defined(GUH_CUDA) && !defined(GUH_HIP) && !defined(GUH_OPENCL)
 #  if defined(__CUDACC__) || defined(CUDA_VERSION)
-#    define PKH_CUDA 1
+#    define GUH_CUDA 1
 #  elif defined(__HIPCC__)
-#    define PKH_HIP 1
+#    define GUH_HIP 1
 #  endif
 #endif
 
 /* Includes */
-#if defined(PKH_CUDA)
+#if defined(GUH_CUDA)
 #  include <cuda_runtime.h>
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
 #  include <hip/hip_runtime.h>
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
 #  ifdef __APPLE__
 #    include <OpenCL/cl.h>
 #  else
@@ -33,43 +33,43 @@
 #  include <string.h>
 #endif
 
-#ifndef PKH_MAX_ARGS
-#  define PKH_MAX_ARGS 24
+#ifndef GUH_MAX_ARGS
+#  define GUH_MAX_ARGS 24
 #endif
 
-#ifndef PKH_OPENCL_BUILD_OPTIONS
-#  define PKH_OPENCL_BUILD_OPTIONS "-cl-std=CL1.2"
+#ifndef GUH_OPENCL_BUILD_OPTIONS
+#  define GUH_OPENCL_BUILD_OPTIONS "-cl-std=CL1.2"
 #endif
 
 /* ============================================================
  * Context
  * ============================================================ */
-typedef struct pk_ctx {
-#if defined(PKH_CUDA)
+typedef struct gu_ctx {
+#if defined(GUH_CUDA)
     int device;
     cudaStream_t stream;
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     int device;
     hipStream_t stream;
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     cl_context context;
     cl_command_queue queue;
     cl_device_id device;
 #else
     int dummy;
 #endif
-} pk_ctx;
+} gu_ctx;
 
-static inline int pk_ctx_init(pk_ctx* c, int dev) {
-#if defined(PKH_CUDA)
+static inline int gu_ctx_init(gu_ctx* c, int dev) {
+#if defined(GUH_CUDA)
     c->device = dev;
     if (cudaSetDevice(dev) != cudaSuccess) return -1;
     return (int)cudaStreamCreate(&c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     c->device = dev;
     if (hipSetDevice(dev) != hipSuccess) return -1;
     return (int)hipStreamCreate(&c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     (void)dev;
     c->context = NULL;
     c->queue = NULL;
@@ -90,12 +90,12 @@ static inline int pk_ctx_init(pk_ctx* c, int dev) {
 #endif
 }
 
-static inline void pk_ctx_destroy(pk_ctx* c) {
-#if defined(PKH_CUDA)
+static inline void gu_ctx_destroy(gu_ctx* c) {
+#if defined(GUH_CUDA)
     cudaStreamDestroy(c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipStreamDestroy(c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     if (c->queue) clReleaseCommandQueue(c->queue);
     if (c->context) clReleaseContext(c->context);
 #else
@@ -103,12 +103,12 @@ static inline void pk_ctx_destroy(pk_ctx* c) {
 #endif
 }
 
-static inline void pk_sync(pk_ctx* c) {
-#if defined(PKH_CUDA)
+static inline void gu_sync(gu_ctx* c) {
+#if defined(GUH_CUDA)
     cudaStreamSynchronize(c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipStreamSynchronize(c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     clFinish(c->queue);
 #else
     (void)c;
@@ -118,13 +118,13 @@ static inline void pk_sync(pk_ctx* c) {
 /* ============================================================
  * Memory
  * ============================================================ */
-static inline void* pk_malloc(pk_ctx* c, size_t n) {
+static inline void* gu_malloc(gu_ctx* c, size_t n) {
     void* p = NULL;
-#if defined(PKH_CUDA)
+#if defined(GUH_CUDA)
     (void)c; cudaMalloc(&p, n);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     (void)c; hipMalloc(&p, n);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     p = (void*)clCreateBuffer(c->context, CL_MEM_READ_WRITE, n, NULL, NULL);
 #else
     (void)c; p = malloc(n);
@@ -132,12 +132,12 @@ static inline void* pk_malloc(pk_ctx* c, size_t n) {
     return p;
 }
 
-static inline void pk_free(pk_ctx* c, void* p) {
-#if defined(PKH_CUDA)
+static inline void gu_free(gu_ctx* c, void* p) {
+#if defined(GUH_CUDA)
     (void)c; cudaFree(p);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     (void)c; hipFree(p);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     (void)c; if (p) clReleaseMemObject((cl_mem)p);
 #else
     (void)c; free(p);
@@ -147,36 +147,36 @@ static inline void pk_free(pk_ctx* c, void* p) {
 /* ============================================================
  * Memcpy
  * ============================================================ */
-static inline void pk_h2d(pk_ctx* c, void* d, const void* s, size_t n) {
-#if defined(PKH_CUDA)
+static inline void gu_h2d(gu_ctx* c, void* d, const void* s, size_t n) {
+#if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyHostToDevice, c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipMemcpyAsync(d, s, n, hipMemcpyHostToDevice, c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     clEnqueueWriteBuffer(c->queue, (cl_mem)d, CL_FALSE, 0, n, s, 0, NULL, NULL);
 #else
     (void)c; memcpy(d, s, n);
 #endif
 }
 
-static inline void pk_d2h(pk_ctx* c, void* d, const void* s, size_t n) {
-#if defined(PKH_CUDA)
+static inline void gu_d2h(gu_ctx* c, void* d, const void* s, size_t n) {
+#if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToHost, c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipMemcpyAsync(d, s, n, hipMemcpyDeviceToHost, c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     clEnqueueReadBuffer(c->queue, (cl_mem)s, CL_FALSE, 0, n, d, 0, NULL, NULL);
 #else
     (void)c; memcpy(d, s, n);
 #endif
 }
 
-static inline void pk_d2d(pk_ctx* c, void* d, const void* s, size_t n) {
-#if defined(PKH_CUDA)
+static inline void gu_d2d(gu_ctx* c, void* d, const void* s, size_t n) {
+#if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToDevice, c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipMemcpyAsync(d, s, n, hipMemcpyDeviceToDevice, c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     clEnqueueCopyBuffer(c->queue, (cl_mem)s, (cl_mem)d, 0, 0, n, 0, NULL, NULL);
 #else
     (void)c; memcpy(d, s, n);
@@ -186,33 +186,33 @@ static inline void pk_d2d(pk_ctx* c, void* d, const void* s, size_t n) {
 /* ============================================================
  * Kernel
  * ============================================================ */
-typedef struct pk_kernel {
+typedef struct gu_kernel {
     int nargs;
-#if defined(PKH_CUDA) || defined(PKH_HIP)
+#if defined(GUH_CUDA) || defined(GUH_HIP)
     void* func;
-    void* args[PKH_MAX_ARGS];
-#elif defined(PKH_OPENCL)
+    void* args[GUH_MAX_ARGS];
+#elif defined(GUH_OPENCL)
     cl_kernel kernel;
     cl_program program;
 #else
     void* func;
 #endif
-} pk_kernel;
+} gu_kernel;
 
-static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const char* src, const char* name) {
+static inline int gu_kernel_create(gu_ctx* c, gu_kernel* k, void* func, const char* src, const char* name) {
     k->nargs = 0;
-#if defined(PKH_CUDA) || defined(PKH_HIP)
+#if defined(GUH_CUDA) || defined(GUH_HIP)
     (void)c; (void)src; (void)name;
     k->func = func;
     return 0;
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     (void)func;
     cl_int e;
     k->kernel = NULL;
     k->program = NULL;
     k->program = clCreateProgramWithSource(c->context, 1, &src, NULL, &e);
     if (e != CL_SUCCESS) return (int)e;
-    e = clBuildProgram(k->program, 1, &c->device, PKH_OPENCL_BUILD_OPTIONS, NULL, NULL);
+    e = clBuildProgram(k->program, 1, &c->device, GUH_OPENCL_BUILD_OPTIONS, NULL, NULL);
     if (e != CL_SUCCESS) {
         size_t len = 0;
         clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &len);
@@ -236,8 +236,8 @@ static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const ch
 #endif
 }
 
-static inline void pk_kernel_destroy(pk_kernel* k) {
-#if defined(PKH_OPENCL)
+static inline void gu_kernel_destroy(gu_kernel* k) {
+#if defined(GUH_OPENCL)
     if (k->kernel) clReleaseKernel(k->kernel);
     if (k->program) clReleaseProgram(k->program);
 #else
@@ -246,28 +246,28 @@ static inline void pk_kernel_destroy(pk_kernel* k) {
 }
 
 /* Add argument */
-static inline void pk_arg_impl(pk_kernel* k, const void* ptr, size_t sz) {
-#if defined(PKH_CUDA) || defined(PKH_HIP)
-    if (k->nargs < PKH_MAX_ARGS) k->args[k->nargs++] = (void*)ptr;
+static inline void gu_arg_impl(gu_kernel* k, const void* ptr, size_t sz) {
+#if defined(GUH_CUDA) || defined(GUH_HIP)
+    if (k->nargs < GUH_MAX_ARGS) k->args[k->nargs++] = (void*)ptr;
     (void)sz;
-#elif defined(PKH_OPENCL)
-    if (k->nargs < PKH_MAX_ARGS) clSetKernelArg(k->kernel, (cl_uint)k->nargs++, sz, ptr);
+#elif defined(GUH_OPENCL)
+    if (k->nargs < GUH_MAX_ARGS) clSetKernelArg(k->kernel, (cl_uint)k->nargs++, sz, ptr);
 #else
     (void)k; (void)ptr; (void)sz;
 #endif
 }
 
-#define pk_arg(k, v) pk_arg_impl(k, &(v), sizeof(v))
+#define gu_arg(k, v) gu_arg_impl(k, &(v), sizeof(v))
 
-static inline void pk_args_reset(pk_kernel* k) { k->nargs = 0; }
+static inline void gu_args_reset(gu_kernel* k) { k->nargs = 0; }
 
 /* Launch kernel */
-static inline void pk_run(pk_ctx* c, pk_kernel* k, int grid, int block, int smem) {
-#if defined(PKH_CUDA)
+static inline void gu_run(gu_ctx* c, gu_kernel* k, int grid, int block, int smem) {
+#if defined(GUH_CUDA)
     cudaLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
-#elif defined(PKH_HIP)
+#elif defined(GUH_HIP)
     hipLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
-#elif defined(PKH_OPENCL)
+#elif defined(GUH_OPENCL)
     if (smem > 0) clSetKernelArg(k->kernel, (cl_uint)k->nargs, (size_t)smem, NULL);
     size_t global = (size_t)grid * (size_t)block;
     size_t local = (size_t)block;
@@ -275,7 +275,7 @@ static inline void pk_run(pk_ctx* c, pk_kernel* k, int grid, int block, int smem
 #else
     (void)c; (void)k; (void)grid; (void)block; (void)smem;
 #endif
-    pk_args_reset(k);
+    gu_args_reset(k);
 }
 
 #endif /* GPUNIH_H */

@@ -5,45 +5,45 @@
  *
  * Naming principle:
  * - Prefer CUDA/C99 spellings in kernels (math `*f`, `atomicAdd/atomicCAS/...`, etc.).
- * - Use `pk_*` only for real portability gaps where OpenCL 1.2 needs extra code
+ * - Use `gu_*` only for real portability gaps where OpenCL 1.2 needs extra code
  *   to emulate missing semantics (e.g. fixed-point float accumulation, `u64` add).
  */
 
-#define PK_DIALECT_VERSION 1
+#define GU_DIALECT_VERSION 1
 
 #if defined(__OPENCL_VERSION__) || defined(__OPENCL_C_VERSION__)
-#  define PK_BACKEND_OPENCL 1
+#  define GU_BACKEND_OPENCL 1
 #elif defined(__HIPCC__) || defined(__HIP_DEVICE_COMPILE__)
-#  define PK_BACKEND_HIP 1
+#  define GU_BACKEND_HIP 1
 #elif defined(__CUDACC__)
-#  define PK_BACKEND_CUDA 1
+#  define GU_BACKEND_CUDA 1
 #else
-#  define PK_BACKEND_HOST 1
+#  define GU_BACKEND_HOST 1
 #endif
 
-#if defined(PK_BACKEND_OPENCL)
+#if defined(GU_BACKEND_OPENCL)
 #  if defined(cl_khr_fp64) || defined(cl_amd_fp64)
-#    define PK_HAS_FP64 1
+#    define GU_HAS_FP64 1
 #  else
-#    define PK_HAS_FP64 0
+#    define GU_HAS_FP64 0
 #  endif
-#  if defined(cl_khr_int64_base_atomics) && !defined(PK_DISABLE_OPENCL_INT64_ATOMICS)
-#    define PK_HAS_I64_ATOMICS 1
+#  if defined(cl_khr_int64_base_atomics) && !defined(GU_DISABLE_OPENCL_INT64_ATOMICS)
+#    define GU_HAS_I64_ATOMICS 1
 #  else
-#    define PK_HAS_I64_ATOMICS 0
+#    define GU_HAS_I64_ATOMICS 0
 #  endif
 #  if defined(cl_khr_local_int32_base_atomics) || defined(cl_khr_local_int32_extended_atomics)
-#    define PK_HAS_LOCAL_ATOMICS 1
+#    define GU_HAS_LOCAL_ATOMICS 1
 #  else
-#    define PK_HAS_LOCAL_ATOMICS 0
+#    define GU_HAS_LOCAL_ATOMICS 0
 #  endif
 #else
-#  define PK_HAS_FP64 1
-#  define PK_HAS_I64_ATOMICS 1
-#  define PK_HAS_LOCAL_ATOMICS 1
+#  define GU_HAS_FP64 1
+#  define GU_HAS_I64_ATOMICS 1
+#  define GU_HAS_LOCAL_ATOMICS 1
 #endif
 
-#if defined(PK_BACKEND_OPENCL)
+#if defined(GU_BACKEND_OPENCL)
 #  ifdef cl_khr_fp64
 #    pragma OPENCL EXTENSION cl_khr_fp64 : enable
 #  endif
@@ -52,36 +52,36 @@
 #  endif
 #endif
 
-#if defined(PK_BACKEND_OPENCL)
-typedef int pk_i32;
-typedef uint pk_u32;
-typedef long pk_i64;
-typedef ulong pk_u64;
+#if defined(GU_BACKEND_OPENCL)
+typedef int gu_i32;
+typedef uint gu_u32;
+typedef long gu_i64;
+typedef ulong gu_u64;
 #else
-typedef int pk_i32;
-typedef unsigned int pk_u32;
-typedef long long pk_i64;
-typedef unsigned long long pk_u64;
+typedef int gu_i32;
+typedef unsigned int gu_u32;
+typedef long long gu_i64;
+typedef unsigned long long gu_u64;
 #endif
 
-#if defined(PK_USE_DOUBLE) && PK_HAS_FP64
-typedef double pk_real;
-#  define PK_REAL_IS_DOUBLE 1
-#  define PK_REAL_IS_FLOAT 0
+#if defined(GU_USE_DOUBLE) && GU_HAS_FP64
+typedef double gu_real;
+#  define GU_REAL_IS_DOUBLE 1
+#  define GU_REAL_IS_FLOAT 0
 #else
-typedef float pk_real;
-#  define PK_REAL_IS_DOUBLE 0
-#  define PK_REAL_IS_FLOAT 1
+typedef float gu_real;
+#  define GU_REAL_IS_DOUBLE 0
+#  define GU_REAL_IS_FLOAT 1
 #endif
 
-#define PK_FIXED_Q32_32_SCALE_F 4294967296.0f
-#define PK_FIXED_Q32_32_INV_SCALE_F 2.3283064365386963e-10f /* 2^-32 */
+#define GU_FIXED_Q32_32_SCALE_F 4294967296.0f
+#define GU_FIXED_Q32_32_INV_SCALE_F 2.3283064365386963e-10f /* 2^-32 */
 
-#if defined(PK_BACKEND_HIP)
+#if defined(GU_BACKEND_HIP)
 #  include <hip/hip_runtime.h>
 #endif
 
-#if defined(PK_BACKEND_OPENCL)
+#if defined(GU_BACKEND_OPENCL)
 
 #  if defined(__OPENCL_C_VERSION__) && __OPENCL_C_VERSION__ < 120
 #    error "gpuni requires OpenCL C 1.2+"
@@ -123,19 +123,19 @@ typedef float pk_real;
 #  define blockDim  ((uint3)(get_local_size(0), get_local_size(1), get_local_size(2)))
 #  define gridDim   ((uint3)(get_num_groups(0), get_num_groups(1), get_num_groups(2)))
 
-#  define PK_GLOBAL __global
-#  define PK_LOCAL __local
-#  define PK_CONSTANT __constant
+#  define GU_GLOBAL __global
+#  define GU_LOCAL __local
+#  define GU_CONSTANT __constant
 
-#  define PK_GLOBAL_PTR(T) PK_GLOBAL T*
-#  define PK_LOCAL_PTR(T) PK_LOCAL T*
-#  define PK_CONSTANT_PTR(T) PK_CONSTANT T*
+#  define GU_GLOBAL_PTR(T) GU_GLOBAL T*
+#  define GU_LOCAL_PTR(T) GU_LOCAL T*
+#  define GU_CONSTANT_PTR(T) GU_CONSTANT T*
 
-#  define PK_RESTRICT restrict
-#  define PK_INLINE inline
+#  define GU_RESTRICT restrict
+#  define GU_INLINE inline
 
 /* Dynamic shared memory: OpenCL uses kernel param, no binding needed */
-#  define PK_BIND_DYNAMIC_SMEM(ptr) /* no-op */
+#  define GU_BIND_DYNAMIC_SMEM(ptr) /* no-op */
 
 /* CUDA/C99 float math aliases for OpenCL (so kernels can stay CUDA-like). */
 #  ifndef rsqrtf
@@ -271,8 +271,8 @@ typedef float pk_real;
    - If cl_khr_int64_base_atomics is unavailable, u64 add falls back to 2x u32
      atomics + carry (correct for accumulation; not a full 64-bit RMW API). */
 
-static PK_INLINE void pk_atomic_add_u64(PK_GLOBAL pk_u64* p, pk_u64 val) {
-#  if defined(cl_khr_int64_base_atomics) && !defined(PK_DISABLE_OPENCL_INT64_ATOMICS)
+static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
+#  if defined(cl_khr_int64_base_atomics) && !defined(GU_DISABLE_OPENCL_INT64_ATOMICS)
   (void)atom_add((volatile __global ulong*)p, (ulong)val);
 #  else
   volatile __global uint* word = (volatile __global uint*)p;
@@ -290,33 +290,33 @@ static PK_INLINE void pk_atomic_add_u64(PK_GLOBAL pk_u64* p, pk_u64 val) {
 #  endif
 }
 
-static PK_INLINE pk_i64 pk_real_to_fixed_q32_32(float x) {
-  return (pk_i64)(x * PK_FIXED_Q32_32_SCALE_F);
+static GU_INLINE gu_i64 gu_real_to_fixed_q32_32(float x) {
+  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_F);
 }
 
-static PK_INLINE float pk_fixed_q32_32_to_real(pk_i64 x) {
-  return (float)x * PK_FIXED_Q32_32_INV_SCALE_F;
+static GU_INLINE float gu_fixed_q32_32_to_real(gu_i64 x) {
+  return (float)x * GU_FIXED_Q32_32_INV_SCALE_F;
 }
 
-static PK_INLINE void pk_atomic_add_fixed_q32_32(PK_GLOBAL pk_u64* p, float x) {
-  pk_atomic_add_u64(p, (pk_u64)pk_real_to_fixed_q32_32(x));
+static GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
+  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
 }
 
 /* Float atomic add (OpenCL 1.2 has no atomic_add(float); emulate via CAS on u32 bits).
    Correctness-first; prefer fixed-point(Q32.32) for high-throughput accumulation. */
-static PK_INLINE float pk_atomic_add_f32(PK_GLOBAL float* p, float x) {
-  volatile PK_GLOBAL pk_u32* u = (volatile PK_GLOBAL pk_u32*)p;
-  pk_u32 old = atomic_add(u, (pk_u32)0);
+static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
+  gu_u32 old = atomic_add(u, (gu_u32)0);
   for (;;) {
-    pk_u32 assumed = old;
-    pk_u32 desired = as_uint(as_float(assumed) + x);
+    gu_u32 assumed = old;
+    gu_u32 desired = as_uint(as_float(assumed) + x);
     old = atomic_cmpxchg(u, assumed, desired);
     if (old == assumed) return as_float(assumed);
   }
 }
 
 /* OpenCL is C, no extern "C" needed */
-#  define PK_EXTERN_C
+#  define GU_EXTERN_C
 
 #else
 
@@ -337,54 +337,54 @@ static PK_INLINE float pk_atomic_add_f32(PK_GLOBAL float* p, float x) {
 #  endif
 #  define __constant
 
-#  define PK_GLOBAL __global
-#  define PK_LOCAL __local
-#  define PK_CONSTANT __constant
+#  define GU_GLOBAL __global
+#  define GU_LOCAL __local
+#  define GU_CONSTANT __constant
 
-#  define PK_GLOBAL_PTR(T) PK_GLOBAL T*
-#  define PK_LOCAL_PTR(T) PK_LOCAL T*
-#  define PK_CONSTANT_PTR(T) PK_CONSTANT T*
+#  define GU_GLOBAL_PTR(T) GU_GLOBAL T*
+#  define GU_LOCAL_PTR(T) GU_LOCAL T*
+#  define GU_CONSTANT_PTR(T) GU_CONSTANT T*
 
 #  if defined(_MSC_VER)
-#    define PK_RESTRICT __restrict
+#    define GU_RESTRICT __restrict
 #  else
-#    define PK_RESTRICT __restrict__
+#    define GU_RESTRICT __restrict__
 #  endif
-#  if defined(PK_BACKEND_CUDA) || defined(PK_BACKEND_HIP)
-#    define PK_INLINE __forceinline__
+#  if defined(GU_BACKEND_CUDA) || defined(GU_BACKEND_HIP)
+#    define GU_INLINE __forceinline__
 #  else
-#    define PK_INLINE inline
+#    define GU_INLINE inline
 #  endif
 
 /* Dynamic shared memory: CUDA/HIP binds to extern __shared__ */
-#  define PK_BIND_DYNAMIC_SMEM(ptr) \
-     extern __shared__ unsigned char _pk_smem_[]; \
-     (ptr) = (decltype(ptr))(&_pk_smem_[0])
+#  define GU_BIND_DYNAMIC_SMEM(ptr) \
+     extern __shared__ unsigned char _gu_smem_[]; \
+     (ptr) = (decltype(ptr))(&_gu_smem_[0])
 
-#  if defined(PK_BACKEND_CUDA) || defined(PK_BACKEND_HIP)
-static __device__ PK_INLINE void pk_atomic_add_u64(PK_GLOBAL pk_u64* p, pk_u64 val) {
+#  if defined(GU_BACKEND_CUDA) || defined(GU_BACKEND_HIP)
+static __device__ GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
   (void)atomicAdd((unsigned long long*)p, (unsigned long long)val);
 }
 
-static __device__ PK_INLINE float pk_atomic_add_f32(PK_GLOBAL float* p, float x) {
+static __device__ GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
   return atomicAdd((float*)p, x);
 }
 
-static __device__ PK_INLINE pk_i64 pk_real_to_fixed_q32_32(float x) {
-  return (pk_i64)(x * PK_FIXED_Q32_32_SCALE_F);
+static __device__ GU_INLINE gu_i64 gu_real_to_fixed_q32_32(float x) {
+  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_F);
 }
 
-static __device__ PK_INLINE float pk_fixed_q32_32_to_real(pk_i64 x) {
-  return (float)x * PK_FIXED_Q32_32_INV_SCALE_F;
+static __device__ GU_INLINE float gu_fixed_q32_32_to_real(gu_i64 x) {
+  return (float)x * GU_FIXED_Q32_32_INV_SCALE_F;
 }
 
-static __device__ PK_INLINE void pk_atomic_add_fixed_q32_32(PK_GLOBAL pk_u64* p, float x) {
-  pk_atomic_add_u64(p, (pk_u64)pk_real_to_fixed_q32_32(x));
+static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
+  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
 }
 #  endif
 
 /* Prevent C++ name mangling for kernel symbols */
-#  define PK_EXTERN_C extern "C"
+#  define GU_EXTERN_C extern "C"
 
 #endif
 

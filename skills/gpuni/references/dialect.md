@@ -15,7 +15,7 @@ Read `README.md` for full dialect rules. This file is for **error diagnosis**.
 
 ## Common mistakes checklist
 
-When reviewing `.pk.cu` for OpenCL compatibility:
+When reviewing `.gu.cu` for OpenCL compatibility:
 
 1. **Pointer aliases** — every `T* p = ...` pointing to `__global/__local/__constant` needs qualifier
 2. **Helper function args** — same rule applies to `__device__` helper parameters

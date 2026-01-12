@@ -6,57 +6,57 @@
 
 #if defined(_WIN32)
 #  include <direct.h>
-#  define PK_PATH_SEP '\\'
+#  define GU_PATH_SEP '\\'
 #else
 #  include <unistd.h>
-#  define PK_PATH_SEP '/'
+#  define GU_PATH_SEP '/'
 #endif
 
 typedef struct {
   char **items;
   size_t count;
   size_t capacity;
-} pk_str_list;
+} gu_str_list;
 
-static void pk_die(const char *msg) {
+static void gu_die(const char *msg) {
   fprintf(stderr, "render: %s\n", msg);
   exit(1);
 }
 
-static void pk_die_errno(const char *context) {
+static void gu_die_errno(const char *context) {
   fprintf(stderr, "render: %s: %s\n", context, strerror(errno));
   exit(1);
 }
 
-static void *pk_xmalloc(size_t n) {
+static void *gu_xmalloc(size_t n) {
   void *p = malloc(n);
-  if (!p) pk_die("out of memory");
+  if (!p) gu_die("out of memory");
   return p;
 }
 
-static void *pk_xrealloc(void *p, size_t n) {
+static void *gu_xrealloc(void *p, size_t n) {
   void *q = realloc(p, n);
-  if (!q) pk_die("out of memory");
+  if (!q) gu_die("out of memory");
   return q;
 }
 
-static char *pk_xstrdup(const char *s) {
+static char *gu_xstrdup(const char *s) {
   size_t n = strlen(s) + 1;
-  char *p = (char *)pk_xmalloc(n);
+  char *p = (char *)gu_xmalloc(n);
   memcpy(p, s, n);
   return p;
 }
 
-static void pk_str_list_push(pk_str_list *list, char *owned) {
+static void gu_str_list_push(gu_str_list *list, char *owned) {
   if (list->count == list->capacity) {
     size_t new_capacity = list->capacity ? list->capacity * 2 : 8;
-    list->items = (char **)pk_xrealloc(list->items, new_capacity * sizeof(list->items[0]));
+    list->items = (char **)gu_xrealloc(list->items, new_capacity * sizeof(list->items[0]));
     list->capacity = new_capacity;
   }
   list->items[list->count++] = owned;
 }
 
-static int pk_str_list_contains(const pk_str_list *list, const char *s) {
+static int gu_str_list_contains(const gu_str_list *list, const char *s) {
   size_t i;
   for (i = 0; i < list->count; ++i) {
     if (strcmp(list->items[i], s) == 0) return 1;
@@ -64,7 +64,7 @@ static int pk_str_list_contains(const pk_str_list *list, const char *s) {
   return 0;
 }
 
-static void pk_str_list_free(pk_str_list *list) {
+static void gu_str_list_free(gu_str_list *list) {
   size_t i;
   for (i = 0; i < list->count; ++i) free(list->items[i]);
   free(list->items);
@@ -73,59 +73,59 @@ static void pk_str_list_free(pk_str_list *list) {
   list->capacity = 0;
 }
 
-static int pk_file_exists(const char *path) {
+static int gu_file_exists(const char *path) {
   struct stat st;
   if (stat(path, &st) != 0) return 0;
   return S_ISREG(st.st_mode) != 0;
 }
 
-static char *pk_dirname_owned(const char *path) {
-  const char *slash = strrchr(path, PK_PATH_SEP);
-  if (!slash) return pk_xstrdup(".");
-  if (slash == path) return pk_xstrdup("/");
+static char *gu_dirname_owned(const char *path) {
+  const char *slash = strrchr(path, GU_PATH_SEP);
+  if (!slash) return gu_xstrdup(".");
+  if (slash == path) return gu_xstrdup("/");
   {
     size_t n = (size_t)(slash - path);
-    char *out = (char *)pk_xmalloc(n + 1);
+    char *out = (char *)gu_xmalloc(n + 1);
     memcpy(out, path, n);
     out[n] = '\0';
     return out;
   }
 }
 
-static char *pk_join_path(const char *a, const char *b) {
+static char *gu_join_path(const char *a, const char *b) {
   size_t a_len = strlen(a);
   size_t b_len = strlen(b);
-  int need_sep = (a_len > 0 && a[a_len - 1] != PK_PATH_SEP);
-  char *out = (char *)pk_xmalloc(a_len + (need_sep ? 1 : 0) + b_len + 1);
+  int need_sep = (a_len > 0 && a[a_len - 1] != GU_PATH_SEP);
+  char *out = (char *)gu_xmalloc(a_len + (need_sep ? 1 : 0) + b_len + 1);
   memcpy(out, a, a_len);
-  if (need_sep) out[a_len++] = PK_PATH_SEP;
+  if (need_sep) out[a_len++] = GU_PATH_SEP;
   memcpy(out + a_len, b, b_len);
   out[a_len + b_len] = '\0';
   return out;
 }
 
-static char *pk_abspath_or_dup(const char *path) {
+static char *gu_abspath_or_dup(const char *path) {
 #if defined(_WIN32)
-  return pk_xstrdup(path);
+  return gu_xstrdup(path);
 #else
-  if (path[0] == '/') return pk_xstrdup(path);
+  if (path[0] == '/') return gu_xstrdup(path);
   {
     char cwd[4096];
-    if (!getcwd(cwd, sizeof(cwd))) return pk_xstrdup(path);
-    return pk_join_path(cwd, path);
+    if (!getcwd(cwd, sizeof(cwd))) return gu_xstrdup(path);
+    return gu_join_path(cwd, path);
   }
 #endif
 }
 
-static char *pk_read_line(FILE *f) {
+static char *gu_read_line(FILE *f) {
   size_t len = 0;
   size_t cap = 256;
-  char *buf = (char *)pk_xmalloc(cap);
+  char *buf = (char *)gu_xmalloc(cap);
   int c;
   while ((c = fgetc(f)) != EOF) {
     if (len + 1 >= cap) {
       cap *= 2;
-      buf = (char *)pk_xrealloc(buf, cap);
+      buf = (char *)gu_xrealloc(buf, cap);
     }
     buf[len++] = (char)c;
     if (c == '\n') break;
@@ -138,21 +138,21 @@ static char *pk_read_line(FILE *f) {
   return buf;
 }
 
-static const char *pk_skip_ws(const char *s) {
+static const char *gu_skip_ws(const char *s) {
   while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n' || *s == '\f' || *s == '\v') ++s;
   return s;
 }
 
-static int pk_parse_include(const char *line, char *out_delim, char **out_path) {
-  const char *p = pk_skip_ws(line);
+static int gu_parse_include(const char *line, char *out_delim, char **out_path) {
+  const char *p = gu_skip_ws(line);
   const char *q;
   size_t n;
   if (*p != '#') return 0;
   ++p;
-  p = pk_skip_ws(p);
+  p = gu_skip_ws(p);
   if (strncmp(p, "include", 7) != 0) return 0;
   p += 7;
-  p = pk_skip_ws(p);
+  p = gu_skip_ws(p);
   if (*p != '"' && *p != '<') return 0;
   *out_delim = *p;
   ++p;
@@ -160,58 +160,58 @@ static int pk_parse_include(const char *line, char *out_delim, char **out_path) 
   while (*q && *q != (*out_delim == '"' ? '"' : '>')) ++q;
   if (!*q) return 0;
   n = (size_t)(q - p);
-  *out_path = (char *)pk_xmalloc(n + 1);
+  *out_path = (char *)gu_xmalloc(n + 1);
   memcpy(*out_path, p, n);
   (*out_path)[n] = '\0';
   return 1;
 }
 
-static char *pk_resolve_gpuni_include(const pk_str_list *include_dirs, const char *include_path) {
+static char *gu_resolve_gpuni_include(const gu_str_list *include_dirs, const char *include_path) {
   size_t i;
   if (strcmp(include_path, "gpuni/dialect.h") == 0) include_path = "gpuni.h";
   for (i = 0; i < include_dirs->count; ++i) {
-    char *candidate = pk_join_path(include_dirs->items[i], include_path);
-    if (pk_file_exists(candidate)) return candidate;
+    char *candidate = gu_join_path(include_dirs->items[i], include_path);
+    if (gu_file_exists(candidate)) return candidate;
     free(candidate);
   }
   return NULL;
 }
 
-static void pk_render_file(FILE *out,
-                           const pk_str_list *include_dirs,
-                           pk_str_list *seen_files,
+static void gu_render_file(FILE *out,
+                           const gu_str_list *include_dirs,
+                           gu_str_list *seen_files,
                            const char *path,
                            int emit_line_directives) {
   FILE *f;
-  char *canonical = pk_abspath_or_dup(path);
+  char *canonical = gu_abspath_or_dup(path);
   char *line;
   unsigned long line_no = 0;
 
-  if (pk_str_list_contains(seen_files, canonical)) {
+  if (gu_str_list_contains(seen_files, canonical)) {
     free(canonical);
     return;
   }
-  pk_str_list_push(seen_files, canonical);
+  gu_str_list_push(seen_files, canonical);
 
   f = fopen(path, "rb");
-  if (!f) pk_die_errno(path);
+  if (!f) gu_die_errno(path);
 
   if (emit_line_directives) fprintf(out, "#line 1 \"%s\"\n", path);
 
-  while ((line = pk_read_line(f)) != NULL) {
+  while ((line = gu_read_line(f)) != NULL) {
     char delim = 0;
     char *inc = NULL;
     ++line_no;
 
-    if (pk_parse_include(line, &delim, &inc)) {
+    if (gu_parse_include(line, &delim, &inc)) {
       int is_gpuni = (delim == '"' && (strncmp(inc, "gpuni/", 6) == 0 || strcmp(inc, "gpuni.h") == 0));
       if (is_gpuni) {
-        char *resolved = pk_resolve_gpuni_include(include_dirs, inc);
+        char *resolved = gu_resolve_gpuni_include(include_dirs, inc);
         if (!resolved) {
           fprintf(stderr, "render: include not found: \"%s\" (from %s:%lu)\n", inc, path, line_no);
           exit(2);
         }
-        pk_render_file(out, include_dirs, seen_files, resolved, emit_line_directives);
+        gu_render_file(out, include_dirs, seen_files, resolved, emit_line_directives);
         if (emit_line_directives) fprintf(out, "#line %lu \"%s\"\n", line_no + 1, path);
         free(resolved);
         free(inc);
@@ -225,10 +225,10 @@ static void pk_render_file(FILE *out,
     free(line);
   }
 
-  if (fclose(f) != 0) pk_die_errno("fclose");
+  if (fclose(f) != 0) gu_die_errno("fclose");
 }
 
-static void pk_usage(FILE *out) {
+static void gu_usage(FILE *out) {
   fprintf(out,
           "usage: render [options] <input>\n"
           "\n"
@@ -243,22 +243,22 @@ static void pk_usage(FILE *out) {
           "  -h, --help      Show this help\n");
 }
 
-static char *pk_find_default_include_dir(const char *input_path) {
-  char *input_dir = pk_dirname_owned(input_path);
-  char *cursor = pk_abspath_or_dup(input_dir);
+static char *gu_find_default_include_dir(const char *input_path) {
+  char *input_dir = gu_dirname_owned(input_path);
+  char *cursor = gu_abspath_or_dup(input_dir);
   free(input_dir);
 
   for (;;) {
     {
-      char *probe = pk_join_path(cursor, "gpuni.h");
-      int ok = pk_file_exists(probe);
+      char *probe = gu_join_path(cursor, "gpuni.h");
+      int ok = gu_file_exists(probe);
       free(probe);
       if (ok) return cursor;
     }
     {
-      char *pkg_dir = pk_join_path(cursor, "gpuni");
-      char *probe = pk_join_path(pkg_dir, "gpuni.h");
-      int ok = pk_file_exists(probe);
+      char *pkg_dir = gu_join_path(cursor, "gpuni");
+      char *probe = gu_join_path(pkg_dir, "gpuni.h");
+      int ok = gu_file_exists(probe);
       free(probe);
       if (ok) {
         free(cursor);
@@ -267,9 +267,9 @@ static char *pk_find_default_include_dir(const char *input_path) {
       free(pkg_dir);
     }
     {
-      char *inc_dir = pk_join_path(cursor, "include");
-      char *probe = pk_join_path(inc_dir, "gpuni.h");
-      int ok = pk_file_exists(probe);
+      char *inc_dir = gu_join_path(cursor, "include");
+      char *probe = gu_join_path(inc_dir, "gpuni.h");
+      int ok = gu_file_exists(probe);
       free(probe);
       if (ok) {
         free(cursor);
@@ -281,7 +281,7 @@ static char *pk_find_default_include_dir(const char *input_path) {
     if (strcmp(cursor, "/") == 0 || strcmp(cursor, ".") == 0) break;
 
     {
-      char *parent = pk_dirname_owned(cursor);
+      char *parent = gu_dirname_owned(cursor);
       if (strcmp(parent, cursor) == 0) {
         free(parent);
         break;
@@ -292,12 +292,12 @@ static char *pk_find_default_include_dir(const char *input_path) {
   }
 
   free(cursor);
-  return pk_xstrdup(".");
+  return gu_xstrdup(".");
 }
 
 int main(int argc, char **argv) {
-  pk_str_list include_dirs;
-  pk_str_list seen_files;
+  gu_str_list include_dirs;
+  gu_str_list seen_files;
   const char *input_path = NULL;
   const char *output_path = NULL;
   int emit_line_directives = 1;
@@ -309,7 +309,7 @@ int main(int argc, char **argv) {
   for (i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
-      pk_usage(stdout);
+      gu_usage(stdout);
       return 0;
     }
     if (strcmp(arg, "--line") == 0) {
@@ -321,49 +321,49 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(arg, "-o") == 0) {
-      if (i + 1 >= argc) pk_die("missing argument for -o");
+      if (i + 1 >= argc) gu_die("missing argument for -o");
       output_path = argv[++i];
       continue;
     }
     if (strcmp(arg, "-I") == 0) {
-      if (i + 1 >= argc) pk_die("missing argument for -I");
-      pk_str_list_push(&include_dirs, pk_xstrdup(argv[++i]));
+      if (i + 1 >= argc) gu_die("missing argument for -I");
+      gu_str_list_push(&include_dirs, gu_xstrdup(argv[++i]));
       continue;
     }
     if (strncmp(arg, "-I", 2) == 0) {
-      pk_str_list_push(&include_dirs, pk_xstrdup(arg + 2));
+      gu_str_list_push(&include_dirs, gu_xstrdup(arg + 2));
       continue;
     }
     if (arg[0] == '-') {
-      pk_usage(stderr);
+      gu_usage(stderr);
       return 2;
     }
-    if (input_path) pk_die("multiple input files provided");
+    if (input_path) gu_die("multiple input files provided");
     input_path = arg;
   }
 
   if (!input_path) {
-    pk_usage(stderr);
+    gu_usage(stderr);
     return 2;
   }
 
   if (include_dirs.count == 0) {
-    pk_str_list_push(&include_dirs, pk_find_default_include_dir(input_path));
+    gu_str_list_push(&include_dirs, gu_find_default_include_dir(input_path));
   }
 
   {
     FILE *out = stdout;
     if (output_path) {
       out = fopen(output_path, "wb");
-      if (!out) pk_die_errno(output_path);
+      if (!out) gu_die_errno(output_path);
     }
 
-    pk_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+    gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
 
-    if (output_path && fclose(out) != 0) pk_die_errno("fclose");
+    if (output_path && fclose(out) != 0) gu_die_errno("fclose");
   }
 
-  pk_str_list_free(&seen_files);
-  pk_str_list_free(&include_dirs);
+  gu_str_list_free(&seen_files);
+  gu_str_list_free(&include_dirs);
   return 0;
 }
