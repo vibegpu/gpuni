@@ -133,3 +133,7 @@ Note (important):
 - Float atomics as a required feature: use fixed-point(Q32.32) helpers.
 - CUDA-only features (tensor cores/WMMA, dynamic parallelism, inline PTX, textures/surfaces).
 - “Big library” layers (FFT/BLAS/Thrust-like APIs): bind external libs per backend if needed.
+
+## License
+
+MIT (see `LICENSE`).

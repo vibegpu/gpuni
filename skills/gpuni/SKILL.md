@@ -1,6 +1,12 @@
 ---
 name: gpuni
-description: "Write/refactor/review gpuni CUDA-truth dialect kernels (*.pk.cu) that compile as CUDA/HIP and render to OpenCL C 1.2 via tools/render.c; use for OpenCL 1.2 address spaces (__global/__local/__constant), uniform __syncthreads, portable atomics (atomic*, pk_atomic_*), and edits to gpuni.h or the renderer; keywords: gpuni, gpuni.h, render.c, OpenCL 1.2, HIP, CUDA dialect."
+description: >-
+  Write, refactor, and review gpuni CUDA-truth dialect kernels (*.pk.cu)
+  that compile as CUDA/HIP and render to OpenCL C 1.2 via tools/render.c.
+  Use when: (1) Creating/editing *.pk.cu kernels, (2) Adding OpenCL 1.2
+  address spaces (__global/__local/__constant), (3) Implementing portable
+  atomics (atomicAdd, pk_atomic_add_fixed_q32_32), (4) Using dynamic shared
+  memory (PK_BIND_DYNAMIC_SMEM), (5) Editing gpuni.h or tools/render.c.
 ---
 
 # gpuni
@@ -35,28 +41,17 @@ tools/render --help
 tools/render path/to/kernel.pk.cu -o tmp/kernel.cl
 ```
 
-## Dialect rules (short)
+## Dialect rules (essential)
 
-- Entry point: `PK_EXTERN_C __global__ void pk_<name>(...)`
-- OpenCL 1.2 address spaces: every non-private pointer must be annotated (`__global/__local/__constant`), including pointer aliases.
-- Uniform barriers only: every `__syncthreads()` must be reached by the whole block/work-group.
-- Keep kernels C-like: no templates/classes/overloads/refs/exceptions/RTTI/`new`/`delete`/standard library.
-- Correctness-first: avoid warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups).
-- Dynamic shared/local: use explicit `__local T* pk_smem` param + `PK_BIND_DYNAMIC_SMEM(pk_smem)`.
-- Prefer CUDA/C99 spellings in code; use `pk_*` only for real OpenCL 1.2 portability gaps.
+Read `README.md` section **"Dialect contract (must)"** for the full contract. Key points:
 
-## Dynamic shared memory pattern (portable ABI)
+1. Entry: `PK_EXTERN_C __global__ void pk_<name>(...)`
+2. Address spaces: every non-private pointer → `__global/__local/__constant`
+3. Uniform barriers: all threads must reach `__syncthreads()`
+4. C-like only: no templates/classes/refs/exceptions/new/delete
+5. Dynamic smem: `__local T* pk_smem` + `PK_BIND_DYNAMIC_SMEM(pk_smem)`
 
-- Put dynamic shared/local memory as an explicit kernel argument: `__local T* pk_smem`
-- Call `PK_BIND_DYNAMIC_SMEM(pk_smem)` to bind CUDA/HIP `extern __shared__` (OpenCL is a no-op).
-
-```cpp
-PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
-  PK_BIND_DYNAMIC_SMEM(pk_smem);
-  __local float* sdata = pk_smem;
-  /* ... */
-}
-```
+**Detailed rules + examples**: See `references/dialect.md`
 
 ## Validation (fast)
 
@@ -74,13 +69,16 @@ PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
 - Reject any attempt to “infer” OpenCL address spaces automatically for local pointer aliases; require explicit annotation.
 - Reject any barrier placed in control flow that some threads may skip.
 
-## Where to look (progressive disclosure)
+## References (load as needed)
 
-- Full dialect rules + examples: `references/dialect.md`
-- Dialect contract + API list: `README.md` (search: "Dialect contract", "Atomics", "Dynamic shared")
-- Exact mappings/atomics: `gpuni.h` (search: "PK_BACKEND_", "atomic", "fixed_q32_32")
-- Renderer behavior/options: `tools/render.c` (search: "Usage", "render")
+| Need | Where to look |
+|------|---------------|
+| Dialect contract, API overview | `README.md` |
+| Address space / barrier errors | `references/dialect.md` |
+| Exact macro mappings | `gpuni.h` (search: `PK_BACKEND_`, `atomic`) |
+| Atomics / fixed-point Q32.32 | `gpuni.h` (search: `pk_atomic_`, `fixed_q32_32`) |
+| Render tool options | `tools/render --help` or `tools/render.c` |
 
-## Files
+## Package files
 
-- Public package: `gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/SKILL.md`
+`gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/SKILL.md`

@@ -2,6 +2,18 @@
 
 Read this when writing/reviewing `*.pk.cu` kernels or diagnosing OpenCL 1.2 compile errors.
 
+## Table of Contents
+
+1. [File shape](#1-file-shape-opencl-render-path)
+2. [Kernel entry points](#2-kernel-entry-points)
+3. [Address spaces (critical)](#3-opencl-12-address-spaces-critical)
+4. [Uniform barriers](#4-barriers-must-be-uniform)
+5. [C-like subset](#5-allowed-subset-keep-it-renderable)
+6. [Warp/subgroup intrinsics](#6-warpsubgroup-intrinsics)
+7. [Atomics](#7-atomics-portable-baseline)
+8. [Dynamic shared memory](#8-dynamic-sharedlocal-memory)
+9. [Quick diagnosis](#9-quick-diagnosis)
+
 ## 1) File shape (OpenCL render path)
 
 - Kernel files should include **only** `#include "gpuni.h"` (avoid extra includes on the OpenCL path).
