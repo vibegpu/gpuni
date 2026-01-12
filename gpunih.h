@@ -33,7 +33,13 @@
 #  include <string.h>
 #endif
 
-#define PKH_MAX_ARGS 24
+#ifndef PKH_MAX_ARGS
+#  define PKH_MAX_ARGS 24
+#endif
+
+#ifndef PKH_OPENCL_BUILD_OPTIONS
+#  define PKH_OPENCL_BUILD_OPTIONS "-cl-std=CL1.2"
+#endif
 
 /* ============================================================
  * Context
@@ -65,8 +71,12 @@ static inline int pk_ctx_init(pk_ctx* c, int dev) {
     return (int)hipStreamCreate(&c->stream);
 #elif defined(PKH_OPENCL)
     (void)dev;
+    c->context = NULL;
+    c->queue = NULL;
+    c->device = NULL;
     cl_platform_id plat; cl_int e;
-    clGetPlatformIDs(1, &plat, NULL);
+    e = clGetPlatformIDs(1, &plat, NULL);
+    if (e != CL_SUCCESS) return (int)e;
     e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_GPU, 1, &c->device, NULL);
     if (e != CL_SUCCESS)
         e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_ALL, 1, &c->device, NULL);
@@ -201,11 +211,12 @@ static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const ch
 #elif defined(PKH_OPENCL)
     (void)func;
     cl_int e;
+    k->kernel = NULL;
+    k->program = NULL;
     k->program = clCreateProgramWithSource(c->context, 1, &src, NULL, &e);
     if (e != CL_SUCCESS) return (int)e;
-    e = clBuildProgram(k->program, 1, &c->device, "-cl-std=CL1.2", NULL, NULL);
+    e = clBuildProgram(k->program, 1, &c->device, PKH_OPENCL_BUILD_OPTIONS, NULL, NULL);
     if (e != CL_SUCCESS) {
-        /* Print build log for debugging */
         size_t len = 0;
         clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &len);
         if (len > 1) {
@@ -217,6 +228,7 @@ static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const ch
             }
         }
         clReleaseProgram(k->program);
+        k->program = NULL;
         return (int)e;
     }
     k->kernel = clCreateKernel(k->program, name, &e);
