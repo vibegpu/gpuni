@@ -26,6 +26,8 @@
 #  else
 #    include <CL/cl.h>
 #  endif
+#  include <stdio.h>
+#  include <stdlib.h>
 #else
 #  include <stdlib.h>
 #  include <string.h>
@@ -55,18 +57,22 @@ typedef struct pk_ctx {
 static inline int pk_ctx_init(pk_ctx* c, int dev) {
 #if defined(PKH_CUDA)
     c->device = dev;
-    cudaSetDevice(dev);
+    if (cudaSetDevice(dev) != cudaSuccess) return -1;
     return (int)cudaStreamCreate(&c->stream);
 #elif defined(PKH_HIP)
     c->device = dev;
-    hipSetDevice(dev);
+    if (hipSetDevice(dev) != hipSuccess) return -1;
     return (int)hipStreamCreate(&c->stream);
 #elif defined(PKH_OPENCL)
-    cl_platform_id plat; cl_int e;
     (void)dev;
+    cl_platform_id plat; cl_int e;
     clGetPlatformIDs(1, &plat, NULL);
-    clGetDeviceIDs(plat, CL_DEVICE_TYPE_GPU, 1, &c->device, NULL);
+    e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_GPU, 1, &c->device, NULL);
+    if (e != CL_SUCCESS)
+        e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_ALL, 1, &c->device, NULL);
+    if (e != CL_SUCCESS) return (int)e;
     c->context = clCreateContext(NULL, 1, &c->device, NULL, NULL, &e);
+    if (e != CL_SUCCESS) return (int)e;
     c->queue = clCreateCommandQueue(c->context, c->device, 0, &e);
     return (int)e;
 #else
@@ -80,8 +86,8 @@ static inline void pk_ctx_destroy(pk_ctx* c) {
 #elif defined(PKH_HIP)
     hipStreamDestroy(c->stream);
 #elif defined(PKH_OPENCL)
-    clReleaseCommandQueue(c->queue);
-    clReleaseContext(c->context);
+    if (c->queue) clReleaseCommandQueue(c->queue);
+    if (c->context) clReleaseContext(c->context);
 #else
     (void)c;
 #endif
@@ -122,7 +128,7 @@ static inline void pk_free(pk_ctx* c, void* p) {
 #elif defined(PKH_HIP)
     (void)c; hipFree(p);
 #elif defined(PKH_OPENCL)
-    (void)c; clReleaseMemObject((cl_mem)p);
+    (void)c; if (p) clReleaseMemObject((cl_mem)p);
 #else
     (void)c; free(p);
 #endif
@@ -168,7 +174,7 @@ static inline void pk_d2d(pk_ctx* c, void* d, const void* s, size_t n) {
 }
 
 /* ============================================================
- * Kernel - unified arg-by-arg interface (like Geryon/OpenMM)
+ * Kernel
  * ============================================================ */
 typedef struct pk_kernel {
     int nargs;
@@ -186,7 +192,6 @@ typedef struct pk_kernel {
 #endif
 } pk_kernel;
 
-/* Create kernel from function pointer (CUDA/HIP) or source (OpenCL) */
 static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const char* src, const char* name) {
     k->nargs = 0;
 #if defined(PKH_CUDA) || defined(PKH_HIP)
@@ -196,11 +201,24 @@ static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const ch
 #elif defined(PKH_OPENCL)
     (void)func;
     cl_int e;
-    size_t len = 0; while(src[len]) len++;
-    k->program = clCreateProgramWithSource(c->context, 1, &src, &len, &e);
+    k->program = clCreateProgramWithSource(c->context, 1, &src, NULL, &e);
     if (e != CL_SUCCESS) return (int)e;
     e = clBuildProgram(k->program, 1, &c->device, "-cl-std=CL1.2", NULL, NULL);
-    if (e != CL_SUCCESS) return (int)e;
+    if (e != CL_SUCCESS) {
+        /* Print build log for debugging */
+        size_t len = 0;
+        clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &len);
+        if (len > 1) {
+            char* log = (char*)malloc(len);
+            if (log) {
+                clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, len, log, NULL);
+                fprintf(stderr, "OpenCL build error:\n%s\n", log);
+                free(log);
+            }
+        }
+        clReleaseProgram(k->program);
+        return (int)e;
+    }
     k->kernel = clCreateKernel(k->program, name, &e);
     return (int)e;
 #else
@@ -211,32 +229,28 @@ static inline int pk_kernel_create(pk_ctx* c, pk_kernel* k, void* func, const ch
 
 static inline void pk_kernel_destroy(pk_kernel* k) {
 #if defined(PKH_OPENCL)
-    clReleaseKernel(k->kernel);
-    clReleaseProgram(k->program);
+    if (k->kernel) clReleaseKernel(k->kernel);
+    if (k->program) clReleaseProgram(k->program);
 #else
     (void)k;
 #endif
 }
 
-/* Add argument - internal */
+/* Add argument */
 static inline void pk_arg_impl(pk_kernel* k, const void* ptr, size_t sz) {
 #if defined(PKH_CUDA) || defined(PKH_HIP)
-    k->args[k->nargs++] = (void*)ptr;
+    if (k->nargs < PKH_MAX_ARGS) k->args[k->nargs++] = (void*)ptr;
     (void)sz;
 #elif defined(PKH_OPENCL)
-    clSetKernelArg(k->kernel, (cl_uint)k->nargs++, sz, ptr);
+    if (k->nargs < PKH_MAX_ARGS) clSetKernelArg(k->kernel, (cl_uint)k->nargs++, sz, ptr);
 #else
     (void)k; (void)ptr; (void)sz;
 #endif
 }
 
-/* Add argument - macro auto-sizeof */
 #define pk_arg(k, v) pk_arg_impl(k, &(v), sizeof(v))
 
-/* Reset args for next launch */
-static inline void pk_args_reset(pk_kernel* k) {
-    k->nargs = 0;
-}
+static inline void pk_args_reset(pk_kernel* k) { k->nargs = 0; }
 
 /* Launch kernel */
 static inline void pk_run(pk_ctx* c, pk_kernel* k, int grid, int block, int smem) {
