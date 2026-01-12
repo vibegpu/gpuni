@@ -36,6 +36,7 @@ hipcc -I. -c saxpy.gu.cu                      # HIP
 
 1. **Entry:** `GU_EXTERN_C __global__ void gu_<name>(...)`
 2. **Address spaces:** annotate every pointer with `GU_GLOBAL/GU_LOCAL/GU_CONSTANT` (including aliases)
+   - Legacy pointer macros `GU_GLOBAL_PTR(T)` / `GU_LOCAL_PTR(T)` / `GU_CONSTANT_PTR(T)` are allowed; `GU_CONSTANT_PTR` does not inject `const`, so write `GU_CONSTANT_PTR(const float)`.
 
    | Keyword | Meaning | Note |
    |---------|---------|------|

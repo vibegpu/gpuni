@@ -127,6 +127,7 @@ typedef float gu_real;
 #  define GU_LOCAL __local
 #  define GU_CONSTANT __constant
 
+/* Pointer helper macros (address space only; add `const` in `T` when needed). */
 #  define GU_GLOBAL_PTR(T) GU_GLOBAL T*
 #  define GU_LOCAL_PTR(T) GU_LOCAL T*
 #  define GU_CONSTANT_PTR(T) GU_CONSTANT T*
@@ -341,9 +342,10 @@ static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
 #  define GU_LOCAL
 #  define GU_CONSTANT
 
+/* Pointer helper macros (address space only; add `const` in `T` when needed). */
 #  define GU_GLOBAL_PTR(T) T*
 #  define GU_LOCAL_PTR(T) T*
-#  define GU_CONSTANT_PTR(T) const T*
+#  define GU_CONSTANT_PTR(T) T*
 
 #  if defined(_MSC_VER)
 #    define GU_RESTRICT __restrict
