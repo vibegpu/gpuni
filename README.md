@@ -1,22 +1,14 @@
 # gpuni
 
-gpuni is **AI-first** and built for **cross-platform many-core GPU computing**: a small, explicit CUDA-truth kernel dialect that targets CUDA, HIP, and OpenCL C 1.2.
+A small CUDA-truth kernel dialect for cross-platform many-core GPU compute (CUDA, HIP, OpenCL C 1.2).
 
-Start here:
-- Write kernels as `*.gu.cu` and follow **Dialect contract (must)** below.
-- For AI coding (Codex/Claude Code), activate the `gpuni` skill: `skills/gpuni/SKILL.md` (Codex: use `$gpuni`; Claude Code: say `Use the gpuni skill`).
+**For AI coding (Codex/Claude Code):** load the `gpuni` skill at `skills/gpuni/SKILL.md` (prompt: use `$gpuni`).
 
-**Package:** `gpuni.h` + `tools/render.c` (+ optional `gpunih.h`, `skills/`).
+**Package:** `gpuni.h` + `tools/render.c` (+ optional `gpunih.h` for host launch)
 
-## Why gpuni
+## Kernel Example
 
-- **One kernel source:** write once in CUDA style, reuse across backends.
-- **OpenCL 1.2 as baseline:** forces the “portable surface” (explicit address spaces, uniform barriers).
-- **No kernel `#ifdef` maze:** backend differences live in `gpuni.h` and the render step.
-
-## Quickstart
-
-Write a kernel (typically `*.gu.cu`):
+Write `*.gu.cu`:
 
 ```cpp
 #include "gpuni.h"
@@ -30,123 +22,65 @@ GU_EXTERN_C __global__ void gu_saxpy(int n,
 }
 ```
 
-Build / render:
+Build:
 
 ```bash
-# OpenCL C 1.2 (render to a single .cl)
-cc -O2 -std=c99 -o tools/render tools/render.c
-tools/render my_kernel.gu.cu -o my_kernel.cl
+cc -O2 -std=c99 -o gpuni-render tools/render.c
+
+nvcc  -I. -c saxpy.gu.cu                      # CUDA
+hipcc -I. -c saxpy.gu.cu                      # HIP
+./gpuni-render saxpy.gu.cu -o saxpy.cl        # OpenCL
 ```
 
-Optional sanity checks (no runtime required):
+## Dialect Rules
 
-```bash
-nvcc  -I. -c my_kernel.gu.cu
-hipcc -I. -c my_kernel.gu.cu
-clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl  # optional
-```
+1. **Entry:** `GU_EXTERN_C __global__ void gu_<name>(...)`
+2. **Address spaces:** annotate every pointer with `__global/__local/__constant` (including aliases)
 
-## Dialect contract (must)
+   | Keyword | Meaning | Note |
+   |---------|---------|------|
+   | `__global__` | kernel entry | double underscore |
+   | `__global/__local/__constant` | pointer address space | no-op in CUDA/HIP |
+   | `__shared__` | shared array | use for `__shared__ float arr[N]` |
+   | `__local T*` | shared pointer | use for dynamic shared memory |
 
-- **Entry point:** `GU_EXTERN_C __global__ void gu_<name>(...)`
-- **Include:** only `#include "gpuni.h"` in dialect kernels (avoid other includes on the OpenCL path)
-- **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
-- **CUDA/C99 spellings in kernels:** use `sinf/expf/...` and `atomicAdd/atomicCAS/...`; use `gu_*` only for real OpenCL 1.2 gaps.
-- **Pointer address spaces (OpenCL 1.2):** annotate every non-private pointer with `__global/__local/__constant` (params + aliases + helper args). Required for OpenCL; no-ops under CUDA/HIP via `gpuni.h`. Prefer `__global/__local/__constant`; synonyms: `GU_GLOBAL/GU_LOCAL/GU_CONSTANT`, `GU_*_PTR(T)`.
-- **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space qualifier in OpenCL)
-- **Uniform barriers:** every `__syncthreads()` is reached by the whole block/work-group (no divergent barrier / early return)
-- **Correctness-first:** don’t rely on warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups)
-- **ABI/layout:** don’t store `float3/int3/...3` in global/constant buffers or structs (use `float4` or SoA)
+   ```cpp
+   __global const float* p = x + off;  // alias must keep __global
+   ```
+3. **C subset only:** no templates/classes/overloads/exceptions/new/delete
+4. **Uniform barriers:** `__syncthreads()` must be reached by all threads (no divergent barrier)
+5. **No `float3` in buffers:** use `float4` or SoA
 
-## OpenCL 1.2 pointer rule (the one that bites)
+## Types and Helpers
 
-OpenCL 1.2 has **no generic pointer**: an unqualified pointer defaults to `__private`, so aliases must keep address space:
+Prefer CUDA/C99 spellings in kernels (e.g. `rsqrtf`, `fmaf`, `atomicAdd`); `gpuni.h` maps them to OpenCL C 1.2 where needed.
 
 ```cpp
-// x is __global; p must also be __global (otherwise it becomes __private in OpenCL)
-__global const float* p = x + off;
+// Portable integer types
+gu_i32, gu_u32, gu_i64, gu_u64
 
-__shared__ float tile[256];
-__local float* t = tile;
+// Device helper function
+__device__ float my_helper(__global const float* p) { return p[0] * 2.0f; }
+
+// Optional: double precision (define before include)
+#define GU_USE_DOUBLE
+#include "gpuni.h"
+gu_real x;  // float by default, double if GU_USE_DOUBLE and GU_HAS_FP64
 ```
-
-## What `gpuni.h` provides (GU_DIALECT_VERSION=1)
-
-- **Backends/caps:** `GU_BACKEND_{CUDA,HIP,OPENCL,HOST}`, `GU_HAS_{FP64,I64_ATOMICS,LOCAL_ATOMICS}`
-- **Types:** `gu_{i32,u32,i64,u64}`, `gu_real` (default `float`; define `GU_USE_DOUBLE` and check `GU_REAL_IS_*`)
-- **Builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
-- **Keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
-- **Address spaces:** `__global/__local/__constant`, plus legacy `GU_*` helpers
-- **Utilities:** `GU_RESTRICT`, `GU_INLINE`, `GU_EXTERN_C`, `GU_BIND_DYNAMIC_SMEM(ptr)`
-- **Math:** CUDA-style `*f` float math is mapped for OpenCL
-
-### Atomics (portable baseline)
-
-OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, prefer **fixed-point(Q32.32) + integer atomics**.
-
-Provided APIs:
-- `atomicAdd/atomicSub/atomicExch/atomicMin/atomicMax/atomicAnd/atomicOr/atomicXor/atomicCAS` (CUDA-style; **`int`/`unsigned int` only** on the portable OpenCL 1.2 baseline)
-- `gu_atomic_add_u64` (returns `void`; OpenCL may require int64 atomics support, else uses a portable accumulation fallback)
-- `gu_atomic_add_f32` (OpenCL 1.2 CAS fallback; correctness-first, slower than fixed-point)
-- `gu_real_to_fixed_q32_32`, `gu_fixed_q32_32_to_real`, `gu_atomic_add_fixed_q32_32`
-
-Minimal usage pattern:
-
-```cpp
-// acc points to a Q32.32 buffer (gu_u64 per element)
-gu_atomic_add_fixed_q32_32(acc + i, value);
-```
-
-### Dynamic shared memory (portable ABI)
-
-OpenCL needs an explicit `__local` kernel argument; CUDA/HIP use `extern __shared__`:
-
-```cpp
-GU_EXTERN_C __global__ void gu_reduce_sum(/* ... */, __local float* gu_smem) {
-  GU_BIND_DYNAMIC_SMEM(gu_smem);  // OpenCL: no-op; CUDA/HIP: binds extern __shared__
-  __local float* s = gu_smem;
-  /* ... */
-}
-```
-
-Host-side contract:
-- CUDA/HIP: set `smem_bytes` as the dynamic shared size; pass `NULL` for `gu_smem`
-- OpenCL: `clSetKernelArg(gu_smem_arg_index, smem_bytes, NULL)`
-
-Note (important):
-- Prefer a **typed** local parameter (`__local float*`, `__local int*`, ...) for dynamic shared memory.
-  Some OpenCL drivers may only guarantee alignment based on the pointee type; `__local unsigned char*` + cast can crash.
 
 ## Host API (`gpunih.h`)
 
-Optional unified host-side API for context, memory, and kernel launch:
-
-```cpp
-#include "gpunih.h"  // auto-detects GUH_CUDA/GUH_HIP, or define GUH_OPENCL
-```
-
-**Types:** `gu_ctx`, `gu_kernel`
-
-**API:**
-- Context: `gu_ctx_init(&ctx, dev)` / `gu_ctx_destroy(&ctx)` / `gu_sync(&ctx)`
-- Memory: `gu_malloc(&ctx, n)` / `gu_free(&ctx, p)`
-- Memcpy: `gu_h2d(&ctx, d, s, n)` / `gu_d2h(&ctx, d, s, n)` / `gu_d2d(&ctx, d, s, n)`
-- Kernel: `GU_KERNEL(&ctx, &k, gu_<name>)` / `gu_kernel_destroy(&k)`
-- Launch: `gu_arg(&k, val)` / `gu_run(&ctx, &k, grid, block, smem)` (args auto-reset)
-
-**Usage example:**
-
 ```cpp
 #include "gpunih.h"
-#include "saxpy_cl.h"  // always include: OpenCL gets source, CUDA/HIP gets no-op
+#include "saxpy_cl.h"  // always include (OpenCL: source; CUDA/HIP: no-op)
 
-// Kernel declaration (CUDA/HIP needs it; harmless for OpenCL)
-GU_EXTERN_C __global__ void gu_saxpy(int, __global float*, __global const float*, float);
+#if defined(GUH_CUDA) || defined(GUH_HIP)
+extern "C" __global__ void gu_saxpy(int, float*, const float*, float);
+#endif
 
 int main() {
   gu_ctx ctx; gu_kernel k;
-  int n = 1024;
-  float a = 2.0f;
+  int n = 1024; float a = 2.0f;
   float *h_x, *h_y;  // host arrays
 
   gu_ctx_init(&ctx, 0);
@@ -155,7 +89,7 @@ int main() {
   gu_h2d(&ctx, d_x, h_x, n * sizeof(float));
   gu_h2d(&ctx, d_y, h_y, n * sizeof(float));
 
-  GU_KERNEL(&ctx, &k, gu_saxpy);  // unified: works for CUDA/HIP/OpenCL
+  GU_KERNEL(&ctx, &k, gu_saxpy);
   gu_arg(&k, n); gu_arg(&k, d_y); gu_arg(&k, d_x); gu_arg(&k, a);
   gu_run(&ctx, &k, (n + 255) / 256, 256, 0);
 
@@ -165,30 +99,35 @@ int main() {
   gu_kernel_destroy(&k);
   gu_free(&ctx, d_x); gu_free(&ctx, d_y);
   gu_ctx_destroy(&ctx);
-  return 0;
 }
 ```
 
-**OpenCL build step:**
+OpenCL build: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy_cl.h`
+OpenCL host build: `cc -DGUH_OPENCL host.c -lOpenCL`
 
-```bash
-# Render kernel to .cl and generate source header
-tools/render saxpy.gu.cu -o saxpy.cl --emit-header saxpy_cl.h
+Also: `gu_d2d(&ctx, dst, src, n)` for device-to-device copy.
+
+## Atomics
+
+OpenCL C 1.2 core only has 32-bit integer atomics (64-bit atomics require extensions). For float accumulation, use fixed-point:
+
+```cpp
+// acc is gu_u64* buffer
+gu_atomic_add_fixed_q32_32(acc + i, value);
+
+// convert back: gu_fixed_q32_32_to_real(acc[i])
 ```
 
-The `GU_KERNEL` macro:
-- CUDA/HIP: uses function pointer directly (header defines `gu_<name>_cl_source` as no-op)
-- OpenCL: uses `gu_<name>_cl_source` string from the generated header
+Also available: `atomicAdd/atomicCAS/...` (int/uint only), `gu_atomic_add_f32` (CAS fallback).
 
-The generated header is safe to include unconditionally—no `#if defined(GUH_OPENCL)` needed.
+## Dynamic Shared Memory
 
-## Not in Scope (v1)
+```cpp
+GU_EXTERN_C __global__ void gu_reduce(/* ... */, __local float* gu_smem) {
+  GU_BIND_DYNAMIC_SMEM(gu_smem);  // CUDA/HIP: binds extern __shared__; OpenCL: no-op
+  __local float* s = gu_smem;
+  // ...
+}
+```
 
-- Warp/subgroup intrinsics for correctness (`__shfl*`, cooperative groups): use `__shared__/__local + __syncthreads()`.
-- Float atomics as a required feature: use fixed-point(Q32.32) helpers.
-- CUDA-only features (tensor cores/WMMA, dynamic parallelism, inline PTX, textures/surfaces).
-- “Big library” layers (FFT/BLAS/Thrust-like APIs): bind external libs per backend if needed.
-
-## License
-
-MIT (see `LICENSE`).
+Host: CUDA/HIP pass `smem_bytes` to launch, `NULL` for `gu_smem`; OpenCL uses `clSetKernelArg(idx, smem_bytes, NULL)`.
