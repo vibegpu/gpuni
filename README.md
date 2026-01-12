@@ -14,8 +14,8 @@ Write `*.gu.cu`:
 #include "gpuni.h"
 
 GU_EXTERN_C __global__ void gu_saxpy(int n,
-                                    __global float* y,
-                                    __global const float* x,
+                                    GU_GLOBAL float* y,
+                                    GU_GLOBAL const float* x,
                                     float a) {
   int i = (int)(blockIdx.x * blockDim.x + threadIdx.x);
   if (i < n) y[i] = a * x[i] + y[i];
@@ -35,17 +35,18 @@ hipcc -I. -c saxpy.gu.cu                      # HIP
 ## Dialect Rules
 
 1. **Entry:** `GU_EXTERN_C __global__ void gu_<name>(...)`
-2. **Address spaces:** annotate every pointer with `__global/__local/__constant` (including aliases)
+2. **Address spaces:** annotate every pointer with `GU_GLOBAL/GU_LOCAL/GU_CONSTANT` (including aliases)
 
    | Keyword | Meaning | Note |
    |---------|---------|------|
-   | `__global__` | kernel entry | double underscore |
-   | `__global/__local/__constant` | pointer address space | no-op in CUDA/HIP |
-   | `__shared__` | shared array | use for `__shared__ float arr[N]` |
-   | `__local T*` | shared pointer | use for dynamic shared memory |
+   | `__global__` | kernel entry | CUDA native |
+   | `GU_GLOBAL` | global memory pointer | no-op in CUDA/HIP |
+   | `GU_LOCAL` | local/shared memory pointer | for dynamic shared memory |
+   | `GU_CONSTANT` | constant memory pointer | no-op in CUDA/HIP |
+   | `__shared__` | shared array declaration | use for `__shared__ float arr[N]` |
 
    ```cpp
-   __global const float* p = x + off;  // alias must keep __global
+   GU_GLOBAL const float* p = x + off;  // alias must keep GU_GLOBAL
    ```
 3. **C subset only:** no templates/classes/overloads/exceptions/new/delete
 4. **Uniform barriers:** `__syncthreads()` must be reached by all threads (no divergent barrier)
@@ -60,7 +61,7 @@ Prefer CUDA/C99 spellings in kernels (e.g. `rsqrtf`, `fmaf`, `atomicAdd`); `gpun
 gu_i32, gu_u32, gu_i64, gu_u64
 
 // Device helper function
-__device__ float my_helper(__global const float* p) { return p[0] * 2.0f; }
+__device__ float my_helper(GU_GLOBAL const float* p) { return p[0] * 2.0f; }
 
 // Optional: double precision (define before include)
 #define GU_USE_DOUBLE
@@ -123,9 +124,9 @@ Also available: `atomicAdd/atomicCAS/...` (int/uint only), `gu_atomic_add_f32` (
 ## Dynamic Shared Memory
 
 ```cpp
-GU_EXTERN_C __global__ void gu_reduce(/* ... */, __local float* gu_smem) {
+GU_EXTERN_C __global__ void gu_reduce(/* ... */, GU_LOCAL float* gu_smem) {
   GU_BIND_DYNAMIC_SMEM(gu_smem);  // CUDA/HIP: binds extern __shared__; OpenCL: no-op
-  __local float* s = gu_smem;
+  GU_LOCAL float* s = gu_smem;
   // ...
 }
 ```

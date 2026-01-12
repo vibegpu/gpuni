@@ -337,13 +337,13 @@ static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
 #  endif
 #  define __constant
 
-#  define GU_GLOBAL __global
-#  define GU_LOCAL __local
-#  define GU_CONSTANT __constant
+#  define GU_GLOBAL
+#  define GU_LOCAL
+#  define GU_CONSTANT
 
-#  define GU_GLOBAL_PTR(T) GU_GLOBAL T*
-#  define GU_LOCAL_PTR(T) GU_LOCAL T*
-#  define GU_CONSTANT_PTR(T) GU_CONSTANT T*
+#  define GU_GLOBAL_PTR(T) T*
+#  define GU_LOCAL_PTR(T) T*
+#  define GU_CONSTANT_PTR(T) const T*
 
 #  if defined(_MSC_VER)
 #    define GU_RESTRICT __restrict
