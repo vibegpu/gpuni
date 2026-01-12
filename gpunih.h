@@ -188,10 +188,7 @@ static inline void pk_d2d(pk_ctx* c, void* d, const void* s, size_t n) {
  * ============================================================ */
 typedef struct pk_kernel {
     int nargs;
-#if defined(PKH_CUDA)
-    void* func;
-    void* args[PKH_MAX_ARGS];
-#elif defined(PKH_HIP)
+#if defined(PKH_CUDA) || defined(PKH_HIP)
     void* func;
     void* args[PKH_MAX_ARGS];
 #elif defined(PKH_OPENCL)
