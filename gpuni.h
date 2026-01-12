@@ -22,6 +22,37 @@
 #endif
 
 #if defined(PK_BACKEND_OPENCL)
+#  if defined(cl_khr_fp64) || defined(cl_amd_fp64)
+#    define PK_HAS_FP64 1
+#  else
+#    define PK_HAS_FP64 0
+#  endif
+#  if defined(cl_khr_int64_base_atomics) && !defined(PK_DISABLE_OPENCL_INT64_ATOMICS)
+#    define PK_HAS_I64_ATOMICS 1
+#  else
+#    define PK_HAS_I64_ATOMICS 0
+#  endif
+#  if defined(cl_khr_local_int32_base_atomics) || defined(cl_khr_local_int32_extended_atomics)
+#    define PK_HAS_LOCAL_ATOMICS 1
+#  else
+#    define PK_HAS_LOCAL_ATOMICS 0
+#  endif
+#else
+#  define PK_HAS_FP64 1
+#  define PK_HAS_I64_ATOMICS 1
+#  define PK_HAS_LOCAL_ATOMICS 1
+#endif
+
+#if defined(PK_BACKEND_OPENCL)
+#  ifdef cl_khr_fp64
+#    pragma OPENCL EXTENSION cl_khr_fp64 : enable
+#  endif
+#  ifdef cl_amd_fp64
+#    pragma OPENCL EXTENSION cl_amd_fp64 : enable
+#  endif
+#endif
+
+#if defined(PK_BACKEND_OPENCL)
 typedef int pk_i32;
 typedef uint pk_u32;
 typedef long pk_i64;
@@ -31,6 +62,16 @@ typedef int pk_i32;
 typedef unsigned int pk_u32;
 typedef long long pk_i64;
 typedef unsigned long long pk_u64;
+#endif
+
+#if defined(PK_USE_DOUBLE) && PK_HAS_FP64
+typedef double pk_real;
+#  define PK_REAL_IS_DOUBLE 1
+#  define PK_REAL_IS_FLOAT 0
+#else
+typedef float pk_real;
+#  define PK_REAL_IS_DOUBLE 0
+#  define PK_REAL_IS_FLOAT 1
 #endif
 
 #define PK_FIXED_Q32_32_SCALE_F 4294967296.0f
@@ -69,7 +110,7 @@ typedef unsigned long long pk_u64;
 #  endif
 
 #  define __host__
-#  define __device__ inline
+#  define __device__
 #  define __global__ __kernel
 #  define __shared__ __local
 #  define __constant__ __constant

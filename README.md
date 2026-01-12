@@ -83,6 +83,8 @@ __local float* t = tile;
 ## What `gpuni.h` provides (PK_DIALECT_VERSION=1)
 
 - **Backends:** `PK_BACKEND_CUDA`, `PK_BACKEND_HIP`, `PK_BACKEND_OPENCL`, `PK_BACKEND_HOST`
+- **Capabilities:** `PK_HAS_FP64`, `PK_HAS_I64_ATOMICS`, `PK_HAS_LOCAL_ATOMICS`
+- **Types:** `pk_i32/pk_u32/pk_i64/pk_u64`, `pk_real` (default `float`; define `PK_USE_DOUBLE` and check `PK_REAL_IS_DOUBLE/PK_REAL_IS_FLOAT`)
 - **CUDA-style builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
 - **Mapped keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
 - **Address-space helpers:** `__global/__local/__constant`, `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`
