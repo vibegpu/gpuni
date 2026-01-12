@@ -21,6 +21,8 @@ Write one CUDA-style kernel source (source-of-truth) that:
 
 ## Workflow (AI-safe)
 
+Canonical public repo (release): `git@github.com:vibegpu/gpuni.git`.
+
 1) Locate the gpuni package root (contains `gpuni.h` and `tools/render.c`). In this repo it is `gpuni/` (then run commands from there).  
 2) Write a kernel as CUDA (file typically `*.pk.cu`) and include `#include "gpuni.h"` (avoid extra includes on the OpenCL path).  
 3) Apply the dialect rules (open `references/dialect.md` if you’re unsure).  

@@ -1,5 +1,7 @@
 # gpuni
 
+gpuni is **AI-first by design**: a small, explicit CUDA-truth kernel dialect that is easy for LLMs to write and easy to verify.
+
 Start here:
 - Include `gpuni.h` in every dialect kernel (`#include "gpuni.h"`).
 - For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt tip: “use `$gpuni`”).
