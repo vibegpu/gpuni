@@ -4,9 +4,9 @@ gpuni is **AI-first** and built for **cross-platform many-core GPU computing**: 
 
 Start here:
 - Write kernels as `*.pk.cu` and follow **Dialect contract (must)** below.
-- For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt: “use `$gpuni`”).
+- For AI coding (Codex/Claude Code), activate the `gpuni` skill: `skills/gpuni/SKILL.md` (Codex: use `$gpuni`; Claude Code: say `Use the gpuni skill`).
 
-**Package:** `gpuni.h` + `tools/render.c` (+ optional `skills/`).
+**Package:** `gpuni.h` + `tools/render.c` (+ optional `gpunih.h`, `skills/`).
 
 ## Why gpuni
 
@@ -52,7 +52,7 @@ clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl  # optional
 - **Include:** only `#include "gpuni.h"` in dialect kernels (avoid other includes on the OpenCL path)
 - **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
 - **CUDA/C99 spellings in kernels:** use `sinf/expf/...` and `atomicAdd/atomicCAS/...`; use `pk_*` only for real OpenCL 1.2 gaps.
-- **Explicit pointer address spaces (OpenCL 1.2):** every non-private pointer must be `__global/__local/__constant` (params + aliases + helper args). Legacy synonyms: `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`.
+- **Pointer address spaces (OpenCL 1.2):** annotate every non-private pointer with `__global/__local/__constant` (params + aliases + helper args). Required for OpenCL; no-ops under CUDA/HIP via `gpuni.h`. Prefer `__global/__local/__constant`; synonyms: `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`.
 - **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space qualifier in OpenCL)
 - **Uniform barriers:** every `__syncthreads()` is reached by the whole block/work-group (no divergent barrier / early return)
 - **Correctness-first:** don’t rely on warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups)
