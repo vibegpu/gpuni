@@ -94,7 +94,7 @@ static inline void gu_ctx_destroy(gu_ctx* c) {
 #if defined(GUH_CUDA)
     cudaStreamDestroy(c->stream);
 #elif defined(GUH_HIP)
-    hipStreamDestroy(c->stream);
+    (void)hipStreamDestroy(c->stream);
 #elif defined(GUH_OPENCL)
     if (c->queue) clReleaseCommandQueue(c->queue);
     if (c->context) clReleaseContext(c->context);
@@ -107,7 +107,7 @@ static inline void gu_sync(gu_ctx* c) {
 #if defined(GUH_CUDA)
     cudaStreamSynchronize(c->stream);
 #elif defined(GUH_HIP)
-    hipStreamSynchronize(c->stream);
+    (void)hipStreamSynchronize(c->stream);
 #elif defined(GUH_OPENCL)
     clFinish(c->queue);
 #else
@@ -123,7 +123,7 @@ static inline void* gu_malloc(gu_ctx* c, size_t n) {
 #if defined(GUH_CUDA)
     (void)c; cudaMalloc(&p, n);
 #elif defined(GUH_HIP)
-    (void)c; hipMalloc(&p, n);
+    (void)c; (void)hipMalloc(&p, n);
 #elif defined(GUH_OPENCL)
     p = (void*)clCreateBuffer(c->context, CL_MEM_READ_WRITE, n, NULL, NULL);
 #else
@@ -136,7 +136,7 @@ static inline void gu_free(gu_ctx* c, void* p) {
 #if defined(GUH_CUDA)
     (void)c; cudaFree(p);
 #elif defined(GUH_HIP)
-    (void)c; hipFree(p);
+    (void)c; (void)hipFree(p);
 #elif defined(GUH_OPENCL)
     (void)c; if (p) clReleaseMemObject((cl_mem)p);
 #else
@@ -151,7 +151,7 @@ static inline void gu_h2d(gu_ctx* c, void* d, const void* s, size_t n) {
 #if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyHostToDevice, c->stream);
 #elif defined(GUH_HIP)
-    hipMemcpyAsync(d, s, n, hipMemcpyHostToDevice, c->stream);
+    (void)hipMemcpyAsync(d, s, n, hipMemcpyHostToDevice, c->stream);
 #elif defined(GUH_OPENCL)
     clEnqueueWriteBuffer(c->queue, (cl_mem)d, CL_FALSE, 0, n, s, 0, NULL, NULL);
 #else
@@ -163,7 +163,7 @@ static inline void gu_d2h(gu_ctx* c, void* d, const void* s, size_t n) {
 #if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToHost, c->stream);
 #elif defined(GUH_HIP)
-    hipMemcpyAsync(d, s, n, hipMemcpyDeviceToHost, c->stream);
+    (void)hipMemcpyAsync(d, s, n, hipMemcpyDeviceToHost, c->stream);
 #elif defined(GUH_OPENCL)
     clEnqueueReadBuffer(c->queue, (cl_mem)s, CL_FALSE, 0, n, d, 0, NULL, NULL);
 #else
@@ -175,7 +175,7 @@ static inline void gu_d2d(gu_ctx* c, void* d, const void* s, size_t n) {
 #if defined(GUH_CUDA)
     cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToDevice, c->stream);
 #elif defined(GUH_HIP)
-    hipMemcpyAsync(d, s, n, hipMemcpyDeviceToDevice, c->stream);
+    (void)hipMemcpyAsync(d, s, n, hipMemcpyDeviceToDevice, c->stream);
 #elif defined(GUH_OPENCL)
     clEnqueueCopyBuffer(c->queue, (cl_mem)s, (cl_mem)d, 0, 0, n, 0, NULL, NULL);
 #else
@@ -266,7 +266,7 @@ static inline void gu_run(gu_ctx* c, gu_kernel* k, int grid, int block, int smem
 #if defined(GUH_CUDA)
     cudaLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
 #elif defined(GUH_HIP)
-    hipLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
+    (void)hipLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
 #elif defined(GUH_OPENCL)
     if (smem > 0) clSetKernelArg(k->kernel, (cl_uint)k->nargs, (size_t)smem, NULL);
     size_t global = (size_t)grid * (size_t)block;
@@ -277,5 +277,24 @@ static inline void gu_run(gu_ctx* c, gu_kernel* k, int grid, int block, int smem
 #endif
     gu_args_reset(k);
 }
+
+/* ============================================================
+ * Unified kernel creation macro
+ * ============================================================
+ * Usage: GU_KERNEL(&ctx, &k, gu_saxpy);
+ *
+ * CUDA/HIP: uses function pointer directly
+ * OpenCL: expects gu_<name>_cl_source string (from render --emit-header)
+ */
+#if defined(GUH_CUDA) || defined(GUH_HIP)
+#define GU_KERNEL(ctx, k, name) \
+    gu_kernel_create(ctx, k, (void*)(name), NULL, NULL)
+#elif defined(GUH_OPENCL)
+#define GU_KERNEL(ctx, k, name) \
+    gu_kernel_create(ctx, k, NULL, name##_cl_source, #name)
+#else
+#define GU_KERNEL(ctx, k, name) \
+    gu_kernel_create(ctx, k, NULL, NULL, NULL)
+#endif
 
 #endif /* GPUNIH_H */

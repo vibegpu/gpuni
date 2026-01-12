@@ -117,6 +117,71 @@ Note (important):
 - Prefer a **typed** local parameter (`__local float*`, `__local int*`, ...) for dynamic shared memory.
   Some OpenCL drivers may only guarantee alignment based on the pointee type; `__local unsigned char*` + cast can crash.
 
+## Host API (`gpunih.h`)
+
+Optional unified host-side API for context, memory, and kernel launch:
+
+```cpp
+#include "gpunih.h"  // auto-detects GUH_CUDA/GUH_HIP, or define GUH_OPENCL
+```
+
+**Types:** `gu_ctx`, `gu_kernel`
+
+**API:**
+- Context: `gu_ctx_init(&ctx, dev)` / `gu_ctx_destroy(&ctx)` / `gu_sync(&ctx)`
+- Memory: `gu_malloc(&ctx, n)` / `gu_free(&ctx, p)`
+- Memcpy: `gu_h2d(&ctx, d, s, n)` / `gu_d2h(&ctx, d, s, n)` / `gu_d2d(&ctx, d, s, n)`
+- Kernel: `GU_KERNEL(&ctx, &k, gu_<name>)` / `gu_kernel_destroy(&k)`
+- Launch: `gu_arg(&k, val)` / `gu_run(&ctx, &k, grid, block, smem)` (args auto-reset)
+
+**Usage example:**
+
+```cpp
+#include "gpunih.h"
+#include "saxpy_cl.h"  // always include: OpenCL gets source, CUDA/HIP gets no-op
+
+// Kernel declaration (CUDA/HIP needs it; harmless for OpenCL)
+GU_EXTERN_C __global__ void gu_saxpy(int, __global float*, __global const float*, float);
+
+int main() {
+  gu_ctx ctx; gu_kernel k;
+  int n = 1024;
+  float a = 2.0f;
+  float *h_x, *h_y;  // host arrays
+
+  gu_ctx_init(&ctx, 0);
+  void* d_x = gu_malloc(&ctx, n * sizeof(float));
+  void* d_y = gu_malloc(&ctx, n * sizeof(float));
+  gu_h2d(&ctx, d_x, h_x, n * sizeof(float));
+  gu_h2d(&ctx, d_y, h_y, n * sizeof(float));
+
+  GU_KERNEL(&ctx, &k, gu_saxpy);  // unified: works for CUDA/HIP/OpenCL
+  gu_arg(&k, n); gu_arg(&k, d_y); gu_arg(&k, d_x); gu_arg(&k, a);
+  gu_run(&ctx, &k, (n + 255) / 256, 256, 0);
+
+  gu_sync(&ctx);
+  gu_d2h(&ctx, h_y, d_y, n * sizeof(float));
+
+  gu_kernel_destroy(&k);
+  gu_free(&ctx, d_x); gu_free(&ctx, d_y);
+  gu_ctx_destroy(&ctx);
+  return 0;
+}
+```
+
+**OpenCL build step:**
+
+```bash
+# Render kernel to .cl and generate source header
+tools/render saxpy.gu.cu -o saxpy.cl --emit-header saxpy_cl.h
+```
+
+The `GU_KERNEL` macro:
+- CUDA/HIP: uses function pointer directly (header defines `gu_<name>_cl_source` as no-op)
+- OpenCL: uses `gu_<name>_cl_source` string from the generated header
+
+The generated header is safe to include unconditionally—no `#if defined(GUH_OPENCL)` needed.
+
 ## Not in Scope (v1)
 
 - Warp/subgroup intrinsics for correctness (`__shfl*`, cooperative groups): use `__shared__/__local + __syncthreads()`.
