@@ -1,19 +1,11 @@
 ---
 name: gpuni
-description: >
-  Write, refactor, and review gpuni CUDA-truth dialect GPU kernels (`*.pk.cu`) that must
-  compile as CUDA/HIP and render to OpenCL C 1.2 via `tools/render.c`.
-
-  Use when: authoring kernels for CUDA+HIP+OpenCL 1.2; fixing OpenCL 1.2 address-space errors
-  (`__global/__local/__constant`); ensuring uniform `__syncthreads()`; implementing portable
-  atomics (`atomic*`, `pk_atomic_*`); working on `gpuni.h` or the renderer.
-
-  Keywords: gpuni, pk_render, render.c, gpuni.h, pk.cu, dialect CUDA, 方言CUDA, OpenCL 1.2, HIP.
+description: "Write/refactor/review gpuni CUDA-truth dialect kernels (*.pk.cu) that compile as CUDA/HIP and render to OpenCL C 1.2 via tools/render.c; use for OpenCL 1.2 address spaces (__global/__local/__constant), uniform __syncthreads, portable atomics (atomic*, pk_atomic_*), and edits to gpuni.h or the renderer; keywords: gpuni, gpuni.h, render.c, OpenCL 1.2, HIP, CUDA dialect."
 ---
 
 # gpuni
 
-## Core idea
+## Core idea (CUDA-truth + OpenCL 1.2 baseline)
 
 Write one CUDA-style kernel source (source-of-truth) that:
 - Compiles directly with `nvcc` and `hipcc` (no CUDA-side translation)
@@ -23,19 +15,24 @@ Write one CUDA-style kernel source (source-of-truth) that:
 
 Canonical public repo (release): `git@github.com:vibegpu/gpuni.git`.
 
-1) Locate the gpuni package root (contains `gpuni.h` and `tools/render.c`). In this repo it is `gpuni/` (then run commands from there).  
-2) Write a kernel as CUDA (file typically `*.pk.cu`) and include `#include "gpuni.h"` (avoid extra includes on the OpenCL path).  
-3) Apply the dialect rules (open `references/dialect.md` if you’re unsure).  
-4) Validate by compiling (CUDA/HIP) and rendering (OpenCL).
+1) Locate the gpuni package root (contains `gpuni.h` and `tools/render.c`). In this dev repo it is `gpuni/`.  
+2) Choose the task type:
+   - New/edited kernel (`*.pk.cu`): write CUDA, include only `#include "gpuni.h"`, then apply the dialect checklist below.
+   - OpenCL build error: first check address spaces (`__global/__local/__constant`) on pointer aliases + helper args, then check barriers.
+   - Portability gap: add a mapping/implementation in `gpuni.h` (prefer CUDA spellings; introduce `pk_*` only when OpenCL 1.2 truly lacks it).
+3) Validate:
+   - CUDA/HIP: compile the `.pk.cu` directly (no translation).
+   - OpenCL: render with the C99 renderer and (optionally) syntax-check with `clang -cl-std=CL1.2`.
 
 ## Quickstart (render to OpenCL C 1.2)
 
 Run from the gpuni package root (the directory that contains `gpuni.h`).
 
 ```bash
-mkdir -p tmp/bin
-cc -O2 -std=c99 -o tmp/bin/pk_render tools/render.c
-tmp/bin/pk_render path/to/kernel.pk.cu -o tmp/kernel.cl
+mkdir -p tmp
+cc -O2 -std=c99 -o tools/render tools/render.c
+tools/render --help
+tools/render path/to/kernel.pk.cu -o tmp/kernel.cl
 ```
 
 ## Dialect rules (short)
@@ -64,9 +61,11 @@ PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
 ## Validation (fast)
 
 - CUDA/HIP compile (if toolchains exist): make sure `-I` points to the directory that contains `gpuni.h`.
-  - Example (this repo): `nvcc  -Igpuni -c path/to/kernel.pk.cu`
-  - Example (this repo): `hipcc -Igpuni -c path/to/kernel.pk.cu`
-- OpenCL render: `tmp/bin/pk_render path/to/kernel.pk.cu -o tmp/kernel.cl`
+  - Example (package root): `nvcc  -I. -c path/to/kernel.pk.cu`
+  - Example (package root): `hipcc -I. -c path/to/kernel.pk.cu`
+  - Example (dev repo root): `nvcc  -Igpuni -c path/to/kernel.pk.cu`
+  - Example (dev repo root): `hipcc -Igpuni -c path/to/kernel.pk.cu`
+- OpenCL render: `tools/render path/to/kernel.pk.cu -o tmp/kernel.cl`
   - Optional syntax-check: `clang -x cl -cl-std=CL1.2 -fsyntax-only tmp/kernel.cl`
 
 ## Review Rules (what to reject)

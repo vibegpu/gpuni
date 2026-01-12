@@ -1,23 +1,18 @@
 # gpuni
 
-gpuni is **AI-first by design**: a small, explicit CUDA-truth kernel dialect that is easy for LLMs to write and easy to verify.
+gpuni is **AI-first** and built for **cross-platform many-core GPU computing**: a small, explicit CUDA-truth kernel dialect that targets CUDA, HIP, and OpenCL C 1.2.
 
 Start here:
-- Include `gpuni.h` in every dialect kernel (`#include "gpuni.h"`).
+- Read and follow **Dialect contract (must)** below for every dialect kernel (`*.pk.cu`).
 - For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt tip: “use `$gpuni`”).
-
-gpuni is a minimal **CUDA-truth kernel dialect**:
-- Kernels compile as-is with `nvcc` and `hipcc` (no CUDA-side translation).
-- The same sources can be rendered into a single-file **OpenCL C 1.2** program.
 
 **Package:** `gpuni.h` + `tools/render.c` (+ optional `skills/`).
 
 ## Why gpuni
 
-- **One kernel source:** write once in CUDA style, reuse for CUDA/HIP/OpenCL 1.2.
+- **One kernel source:** write once in CUDA style, reuse across backends.
 - **OpenCL 1.2 as baseline:** forces the “portable surface” (explicit address spaces, uniform barriers).
 - **No kernel `#ifdef` maze:** backend differences live in `gpuni.h` and the render step.
-- **AI-friendly:** fixed templates + hard rules reduce ambiguity and make output verifiable.
 
 ## Quickstart
 
