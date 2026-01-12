@@ -1,6 +1,8 @@
-# gpuni Dialect Diagnosis (AI reference)
+# gpuni Dialect Diagnosis (optional)
 
-Read `README.md` for full dialect rules. This file is for **error diagnosis**.
+This file is **not required** for normal gpuni kernel work.
+
+Use it only when OpenCL C 1.2 compilation/runtime fails, after following the dialect rules in `README.md`.
 
 ## Error → Fix mapping
 
@@ -10,20 +12,16 @@ Read `README.md` for full dialect rules. This file is for **error diagnosis**.
 | "cannot convert `__global T*` to `__private T*`" | Missing address space on alias | Copy address space from source pointer |
 | "cannot convert `__local T*` to `__private T*`" | Missing `__local` on shared alias | Use `__local float* t = tile;` |
 | Hang / deadlock | Divergent barrier | Ensure all threads reach `__syncthreads()` |
-| "undeclared identifier 'sinf'" | Missing gpuni.h include | Add `#include "gpuni.h"` |
-| "use of undeclared identifier 'threadIdx'" | Missing gpuni.h or wrong backend | Check include and backend detection |
+| "undeclared identifier 'sinf'" | Missing dialect mapping | Include `gpuni.h` (maps CUDA spellings to OpenCL) |
+| "use of undeclared identifier 'threadIdx'" | Wrong backend context | Ensure OpenCL source is renderer output and includes `gpuni.h` |
 
 ## Common mistakes checklist
 
-When reviewing `.gu.cu` for OpenCL compatibility:
-
-1. **Pointer aliases** — every `T* p = ...` pointing to `__global/__local/__constant` needs qualifier
-2. **Helper function args** — same rule applies to `__device__` helper parameters
-3. **Barriers** — no `__syncthreads()` inside `if` that some threads skip
-4. **vec3 storage** — no `float3`/`int3` in global arrays or structs
+1. **Pointer aliases:** every alias to global/local/constant must keep the address space qualifier.
+2. **Helper args:** apply the same rule to `__device__` helper function parameters.
+3. **Uniform barriers:** never put `__syncthreads()` behind divergent control flow.
+4. **Vector storage:** avoid `float3`/`int3` in buffers (use `float4` or SoA).
 
 ## See also
 
-- Full dialect contract: `README.md` § "Dialect contract (must)"
-- Address space examples: `README.md` § "OpenCL 1.2 pointer rule"
-- Atomics API: `README.md` § "Atomics (portable baseline)"
+- Dialect contract and examples: `README.md`

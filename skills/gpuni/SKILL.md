@@ -2,46 +2,42 @@
 name: gpuni
 description: >-
   Write, refactor, and review gpuni CUDA-truth dialect kernels (*.gu.cu)
-  that compile as CUDA/HIP and render to OpenCL C 1.2 via tools/render.c.
-  Use when: (1) Creating/editing *.gu.cu kernels, (2) Adding OpenCL 1.2
-  address spaces (__global/__local/__constant), (3) Implementing portable
-  atomics (atomicAdd, gu_atomic_add_fixed_q32_32), (4) Using dynamic shared
-  memory (GU_BIND_DYNAMIC_SMEM), (5) Editing gpuni.h or tools/render.c.
+  that compile as CUDA/HIP and render to OpenCL C 1.2. Use when working on:
+  (1) *.gu.cu kernels, (2) OpenCL 1.2 address spaces (GU_GLOBAL/GU_LOCAL/GU_CONSTANT),
+  (3) portable atomics (atomic* + gu_atomic_*), (4) dynamic shared memory (GU_BIND_DYNAMIC_SMEM),
+  or (5) portability reviews for CUDA/HIP/OpenCL consistency.
 ---
 
 # gpuni
 
 Canonical repo: `git@github.com:vibegpu/gpuni.git`
 
-If gpuni package is not available locally, clone from this repo first.
+If the gpuni package is not available locally, ask the user to provide it (or clone it if appropriate).
 
-Read `README.md` for dialect contract, API reference, and code examples.
+Read the dialect contract first:
+- Dev workspace: `gpuni/README.md`
+- Released package: `README.md`
+
+Treat the README as the source of truth. Do not read `gpuni.h` or renderer sources during normal kernel work.
 
 ## Workflow
 
-1) Locate gpuni package root (contains `gpuni.h` and `tools/render.c`). In this dev repo: `gpuni/`.
-2) Task types:
-   - New/edited kernel: write CUDA in `*.gu.cu`, apply dialect contract from README.
-   - Review/audit kernel: check Review Rules below; use `references/dialect.md` for error patterns.
-   - OpenCL build error: check address spaces on pointer aliases + helper args, then barriers.
-   - Portability gap: add mapping in `gpuni.h` (prefer CUDA spellings; `gu_*` only when OpenCL 1.2 lacks it).
-3) Validate: see README "Verification" section.
+1) Identify the kernel(s): `*.gu.cu`.
+2) Apply the README "Dialect Rules" (entry signature, address spaces on every pointer + alias, C subset, uniform barriers, no warp/subgroup intrinsics).
+3) If OpenCL compilation fails, use `references/dialect.md` to map errors → fixes (usually pointer aliases or divergent barriers).
+4) Validate using the repo's smoke/lint scripts (see README "Verification").
 
 ## Review Rules
 
 Reject:
 - Any change making kernels "not valid CUDA without CUDA-side translation"
-- Automatic inference of OpenCL address spaces for pointer aliases (require explicit annotation)
+- Missing address-space qualifiers on pointer aliases (require explicit annotation)
 - Barriers in control flow that some threads may skip
 
 ## References
 
-| Need | Where |
-|------|-------|
-| Dialect contract, API, examples | `README.md` |
-| Error diagnosis (AI) | `references/dialect.md` |
-| Macro mappings, atomics | `gpuni.h` |
-| Render tool | `tools/render --help` |
+- Dialect contract, API, examples: `README.md` (or `gpuni/README.md` in this dev repo)
+- Error diagnosis (AI): `references/dialect.md`
 
 ## Package
 
