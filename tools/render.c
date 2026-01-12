@@ -284,7 +284,7 @@ static void gu_write_header(const char *header_path, const char *src, const gu_s
     const char *c;
 
     fprintf(f, "#if defined(GUH_OPENCL)\n");
-    fprintf(f, "static const char %s_cl_source[] =\n", name);
+    fprintf(f, "static const char %s_gu_source[] =\n", name);
     fprintf(f, "  \"");
     for (c = src; *c; ++c) {
       switch (*c) {
@@ -299,7 +299,7 @@ static void gu_write_header(const char *header_path, const char *src, const gu_s
     fprintf(f, "\";\n");
     fprintf(f, "#else\n");
     fprintf(f, "/* CUDA/HIP: source not needed, GU_KERNEL ignores this */\n");
-    fprintf(f, "#define %s_cl_source ((const char*)0)\n", name);
+    fprintf(f, "#define %s_gu_source ((const char*)0)\n", name);
     fprintf(f, "#endif\n\n");
   }
 

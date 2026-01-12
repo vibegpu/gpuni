@@ -47,16 +47,22 @@ hipcc -I. -c saxpy.gu.cu                      # HIP
 
    ```cpp
    GU_GLOBAL const float* p = x + off;  // alias must keep GU_GLOBAL
+
+   __shared__ float tile[256];
+   GU_LOCAL float* t = tile;            // alias to shared must keep GU_LOCAL
    ```
 3. **C subset only:** no templates/classes/overloads/exceptions/new/delete
 4. **Uniform barriers:** `__syncthreads()` must be reached by all threads (no divergent barrier)
 5. **No `float3` in buffers:** use `float4` or SoA
+6. **No warp/subgroup intrinsics:** avoid `__shfl*`, `__ballot*`, cooperative groups; use `__shared__` + `__syncthreads()`
 
 ## Types and Helpers
 
-Prefer CUDA/C99 spellings in kernels (e.g. `rsqrtf`, `fmaf`, `atomicAdd`); `gpuni.h` maps them to OpenCL C 1.2 where needed.
+Prefer CUDA/C99 spellings in kernels (e.g. `rsqrtf`, `fmaf`, `atomicAdd`).
 
 ```cpp
+// Builtins (always available): threadIdx/blockIdx/blockDim/gridDim (.x/.y/.z)
+
 // Portable integer types
 gu_i32, gu_u32, gu_i64, gu_u64
 
@@ -73,7 +79,7 @@ gu_real x;  // float by default, double if GU_USE_DOUBLE and GU_HAS_FP64
 
 ```cpp
 #include "gpunih.h"
-#include "saxpy_cl.h"  // always include (OpenCL: source; CUDA/HIP: no-op)
+#include "saxpy.gu.h"  // always include
 
 #if defined(GUH_CUDA) || defined(GUH_HIP)
 extern "C" __global__ void gu_saxpy(int, float*, const float*, float);
@@ -103,14 +109,14 @@ int main() {
 }
 ```
 
-OpenCL build: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy_cl.h`
+OpenCL build: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy.gu.h`
 OpenCL host build: `cc -DGUH_OPENCL host.c -lOpenCL`
 
 Also: `gu_d2d(&ctx, dst, src, n)` for device-to-device copy.
 
 ## Atomics
 
-OpenCL C 1.2 core only has 32-bit integer atomics (64-bit atomics require extensions). For float accumulation, use fixed-point:
+For portable float accumulation, use fixed-point:
 
 ```cpp
 // acc is gu_u64* buffer
@@ -119,16 +125,16 @@ gu_atomic_add_fixed_q32_32(acc + i, value);
 // convert back: gu_fixed_q32_32_to_real(acc[i])
 ```
 
-Also available: `atomicAdd/atomicCAS/...` (int/uint only), `gu_atomic_add_f32` (CAS fallback).
+Also available: `atomicAdd/atomicCAS/...` (int/uint only), `gu_atomic_add_f32` (float).
 
 ## Dynamic Shared Memory
 
 ```cpp
 GU_EXTERN_C __global__ void gu_reduce(/* ... */, GU_LOCAL float* gu_smem) {
-  GU_BIND_DYNAMIC_SMEM(gu_smem);  // CUDA/HIP: binds extern __shared__; OpenCL: no-op
+  GU_BIND_DYNAMIC_SMEM(gu_smem);
   GU_LOCAL float* s = gu_smem;
   // ...
 }
 ```
 
-Host: CUDA/HIP pass `smem_bytes` to launch, `NULL` for `gu_smem`; OpenCL uses `clSetKernelArg(idx, smem_bytes, NULL)`.
+Host: pass `smem_bytes` to `gu_run()`, `NULL` for `gu_smem` argument.

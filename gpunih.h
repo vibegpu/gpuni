@@ -283,15 +283,14 @@ static inline void gu_run(gu_ctx* c, gu_kernel* k, int grid, int block, int smem
  * ============================================================
  * Usage: GU_KERNEL(&ctx, &k, gu_saxpy);
  *
- * CUDA/HIP: uses function pointer directly
- * OpenCL: expects gu_<name>_cl_source string (from render --emit-header)
+ * Include the generated .gu.h header before using this macro.
  */
 #if defined(GUH_CUDA) || defined(GUH_HIP)
 #define GU_KERNEL(ctx, k, name) \
     gu_kernel_create(ctx, k, (void*)(name), NULL, NULL)
 #elif defined(GUH_OPENCL)
 #define GU_KERNEL(ctx, k, name) \
-    gu_kernel_create(ctx, k, NULL, name##_cl_source, #name)
+    gu_kernel_create(ctx, k, NULL, name##_gu_source, #name)
 #else
 #define GU_KERNEL(ctx, k, name) \
     gu_kernel_create(ctx, k, NULL, NULL, NULL)
