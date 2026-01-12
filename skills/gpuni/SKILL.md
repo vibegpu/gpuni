@@ -13,6 +13,8 @@ description: >-
 
 Canonical repo: `git@github.com:vibegpu/gpuni.git`
 
+If gpuni package is not available locally, clone from this repo first.
+
 Read `README.md` for dialect contract, API reference, and code examples.
 
 ## Workflow
@@ -20,6 +22,7 @@ Read `README.md` for dialect contract, API reference, and code examples.
 1) Locate gpuni package root (contains `gpuni.h` and `tools/render.c`). In this dev repo: `gpuni/`.
 2) Task types:
    - New/edited kernel: write CUDA in `*.pk.cu`, apply dialect contract from README.
+   - Review/audit kernel: check Review Rules below; use `references/dialect.md` for error patterns.
    - OpenCL build error: check address spaces on pointer aliases + helper args, then barriers.
    - Portability gap: add mapping in `gpuni.h` (prefer CUDA spellings; `pk_*` only when OpenCL 1.2 lacks it).
 3) Validate: see README "Verification" section.
@@ -36,10 +39,10 @@ Reject:
 | Need | Where |
 |------|-------|
 | Dialect contract, API, examples | `README.md` |
-| Address space / barrier errors | `references/dialect.md` |
+| Error diagnosis (AI) | `references/dialect.md` |
 | Macro mappings, atomics | `gpuni.h` |
 | Render tool | `tools/render --help` |
 
 ## Package
 
-`gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/SKILL.md`
+`gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/`
