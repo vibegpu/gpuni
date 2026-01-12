@@ -107,7 +107,7 @@ Minimal usage pattern:
 pk_atomic_add_fixed_q32_32(acc + i, value);
 ```
 
-## Dynamic shared memory (portable ABI)
+### Dynamic shared memory (portable ABI)
 
 OpenCL needs an explicit `__local` kernel argument; CUDA/HIP use `extern __shared__`:
 
