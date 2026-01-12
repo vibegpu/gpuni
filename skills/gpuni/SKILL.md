@@ -11,74 +11,35 @@ description: >-
 
 # gpuni
 
-## Core idea (CUDA-truth + OpenCL 1.2 baseline)
+Canonical repo: `git@github.com:vibegpu/gpuni.git`
 
-Write one CUDA-style kernel source (source-of-truth) that:
-- Compiles directly with `nvcc` and `hipcc` (no CUDA-side translation)
-- Renders into a single-file OpenCL C 1.2 source via `tools/render.c`
+Read `README.md` for dialect contract, API reference, and code examples.
 
-## Workflow (AI-safe)
+## Workflow
 
-Canonical public repo (release): `git@github.com:vibegpu/gpuni.git`.
+1) Locate gpuni package root (contains `gpuni.h` and `tools/render.c`). In this dev repo: `gpuni/`.
+2) Task types:
+   - New/edited kernel: write CUDA in `*.pk.cu`, apply dialect contract from README.
+   - OpenCL build error: check address spaces on pointer aliases + helper args, then barriers.
+   - Portability gap: add mapping in `gpuni.h` (prefer CUDA spellings; `pk_*` only when OpenCL 1.2 lacks it).
+3) Validate: see README "Verification" section.
 
-1) Locate the gpuni package root (contains `gpuni.h` and `tools/render.c`). In this dev repo it is `gpuni/`.  
-2) Choose the task type:
-   - New/edited kernel (`*.pk.cu`): write CUDA, include only `#include "gpuni.h"`, then apply the dialect checklist below.
-   - OpenCL build error: first check address spaces (`__global/__local/__constant`) on pointer aliases + helper args, then check barriers.
-   - Portability gap: add a mapping/implementation in `gpuni.h` (prefer CUDA spellings; introduce `pk_*` only when OpenCL 1.2 truly lacks it).
-3) Validate:
-   - CUDA/HIP: compile the `.pk.cu` directly (no translation).
-   - OpenCL: render with the C99 renderer and (optionally) syntax-check with `clang -cl-std=CL1.2`.
+## Review Rules
 
-## Quickstart (render to OpenCL C 1.2)
+Reject:
+- Any change making kernels "not valid CUDA without CUDA-side translation"
+- Automatic inference of OpenCL address spaces for pointer aliases (require explicit annotation)
+- Barriers in control flow that some threads may skip
 
-Run from the gpuni package root (the directory that contains `gpuni.h`).
+## References
 
-```bash
-mkdir -p tmp
-cc -O2 -std=c99 -o tools/render tools/render.c
-tools/render --help
-tools/render path/to/kernel.pk.cu -o tmp/kernel.cl
-```
-
-## Dialect rules (essential)
-
-Read `README.md` section **"Dialect contract (must)"** for the full contract. Key points:
-
-1. Entry: `PK_EXTERN_C __global__ void pk_<name>(...)`
-2. Address spaces: every non-private pointer → `__global/__local/__constant`
-3. Uniform barriers: all threads must reach `__syncthreads()`
-4. C-like only: no templates/classes/refs/exceptions/new/delete
-5. Dynamic smem: `__local T* pk_smem` + `PK_BIND_DYNAMIC_SMEM(pk_smem)`
-
-**Detailed rules + examples**: See `references/dialect.md`
-
-## Validation (fast)
-
-- CUDA/HIP compile (if toolchains exist): make sure `-I` points to the directory that contains `gpuni.h`.
-  - Example (package root): `nvcc  -I. -c path/to/kernel.pk.cu`
-  - Example (package root): `hipcc -I. -c path/to/kernel.pk.cu`
-  - Example (dev repo root): `nvcc  -Igpuni -c path/to/kernel.pk.cu`
-  - Example (dev repo root): `hipcc -Igpuni -c path/to/kernel.pk.cu`
-- OpenCL render: `tools/render path/to/kernel.pk.cu -o tmp/kernel.cl`
-  - Optional syntax-check: `clang -x cl -cl-std=CL1.2 -fsyntax-only tmp/kernel.cl`
-
-## Review Rules (what to reject)
-
-- Reject any change that makes kernels “not valid CUDA without a CUDA-side translation step”.
-- Reject any attempt to “infer” OpenCL address spaces automatically for local pointer aliases; require explicit annotation.
-- Reject any barrier placed in control flow that some threads may skip.
-
-## References (load as needed)
-
-| Need | Where to look |
-|------|---------------|
-| Dialect contract, API overview | `README.md` |
+| Need | Where |
+|------|-------|
+| Dialect contract, API, examples | `README.md` |
 | Address space / barrier errors | `references/dialect.md` |
-| Exact macro mappings | `gpuni.h` (search: `PK_BACKEND_`, `atomic`) |
-| Atomics / fixed-point Q32.32 | `gpuni.h` (search: `pk_atomic_`, `fixed_q32_32`) |
-| Render tool options | `tools/render --help` or `tools/render.c` |
+| Macro mappings, atomics | `gpuni.h` |
+| Render tool | `tools/render --help` |
 
-## Package files
+## Package
 
 `gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/SKILL.md`
