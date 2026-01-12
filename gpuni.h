@@ -341,9 +341,9 @@ static PK_INLINE float pk_atomic_add_f32(PK_GLOBAL float* p, float x) {
 #  define PK_LOCAL __local
 #  define PK_CONSTANT __constant
 
-#  define PK_GLOBAL_PTR(T) T*
-#  define PK_LOCAL_PTR(T) T*
-#  define PK_CONSTANT_PTR(T) T*
+#  define PK_GLOBAL_PTR(T) PK_GLOBAL T*
+#  define PK_LOCAL_PTR(T) PK_LOCAL T*
+#  define PK_CONSTANT_PTR(T) PK_CONSTANT T*
 
 #  if defined(_MSC_VER)
 #    define PK_RESTRICT __restrict

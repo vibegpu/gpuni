@@ -3,8 +3,8 @@
 gpuni is **AI-first** and built for **cross-platform many-core GPU computing**: a small, explicit CUDA-truth kernel dialect that targets CUDA, HIP, and OpenCL C 1.2.
 
 Start here:
-- Read and follow **Dialect contract (must)** below for every dialect kernel (`*.pk.cu`).
-- For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt tip: “use `$gpuni`”).
+- Write kernels as `*.pk.cu` and follow **Dialect contract (must)** below.
+- For AI coding (Codex/Claude Code), load/activate the `gpuni` skill: `skills/gpuni/SKILL.md` (prompt: “use `$gpuni`”).
 
 **Package:** `gpuni.h` + `tools/render.c` (+ optional `skills/`).
 
@@ -38,15 +38,12 @@ cc -O2 -std=c99 -o tools/render tools/render.c
 tools/render my_kernel.pk.cu -o my_kernel.cl
 ```
 
-## Verification
+Optional sanity checks (no runtime required):
 
 ```bash
-# CUDA / HIP (no translation, if you have the toolchains)
 nvcc  -I. -c my_kernel.pk.cu
 hipcc -I. -c my_kernel.pk.cu
-
-# OpenCL C 1.2 (optional syntax-check if you have clang)
-clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl
+clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl  # optional
 ```
 
 ## Dialect contract (must)
@@ -54,17 +51,10 @@ clang -x cl -cl-std=CL1.2 -fsyntax-only my_kernel.cl
 - **Entry point:** `PK_EXTERN_C __global__ void pk_<name>(...)`
 - **Include:** only `#include "gpuni.h"` in dialect kernels (avoid other includes on the OpenCL path)
 - **C-like subset:** no templates/classes/overloads/references/exceptions/RTTI/`new`/`delete`/standard library
-- **CUDA/C99-first naming:** write kernels in CUDA/C99 spellings; `gpuni.h` maps them for OpenCL:
-  - Prefer `sinf/expf/...` and `atomicAdd/atomicCAS/...` in kernels (avoid `pk_*` when a CUDA spelling exists).
-  - Use `pk_*` only when OpenCL 1.2 needs extra code to emulate missing semantics (e.g. fixed-point float accumulation, `u64` add).
-- **OpenCL 1.2 address spaces (critical):** annotate every non-private pointer type with `__global` / `__local` / `__constant`:
-  - kernel parameters
-  - pointer aliases/temporaries (`p = x + off`)
-  - helper function pointer arguments
-  - These are no-ops under CUDA/HIP via `gpuni.h` and required under OpenCL.
-  - Synonyms exist (legacy): `PK_GLOBAL` / `PK_LOCAL` / `PK_CONSTANT`, `PK_*_PTR(T)`; prefer `__global/__local/__constant` in kernels.
-- **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space)
-- **Uniform barriers:** every `__syncthreads()` must be reached by the whole block/work-group (no divergent barrier / early return)
+- **CUDA/C99 spellings in kernels:** use `sinf/expf/...` and `atomicAdd/atomicCAS/...`; use `pk_*` only for real OpenCL 1.2 gaps.
+- **Explicit pointer address spaces (OpenCL 1.2):** every non-private pointer must be `__global/__local/__constant` (params + aliases + helper args). Legacy synonyms: `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`.
+- **Don’t confuse:** `__global__` (kernel qualifier) vs `__global` (pointer address space qualifier in OpenCL)
+- **Uniform barriers:** every `__syncthreads()` is reached by the whole block/work-group (no divergent barrier / early return)
 - **Correctness-first:** don’t rely on warp/subgroup intrinsics (`__shfl*`, `__ballot*`, `__syncwarp`, cooperative groups)
 - **ABI/layout:** don’t store `float3/int3/...3` in global/constant buffers or structs (use `float4` or SoA)
 
@@ -82,19 +72,17 @@ __local float* t = tile;
 
 ## What `gpuni.h` provides (PK_DIALECT_VERSION=1)
 
-- **Backends:** `PK_BACKEND_CUDA`, `PK_BACKEND_HIP`, `PK_BACKEND_OPENCL`, `PK_BACKEND_HOST`
-- **Capabilities:** `PK_HAS_FP64`, `PK_HAS_I64_ATOMICS`, `PK_HAS_LOCAL_ATOMICS`
-- **Types:** `pk_i32/pk_u32/pk_i64/pk_u64`, `pk_real` (default `float`; define `PK_USE_DOUBLE` and check `PK_REAL_IS_DOUBLE/PK_REAL_IS_FLOAT`)
-- **CUDA-style builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
-- **Mapped keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
-- **Address-space helpers:** `__global/__local/__constant`, `PK_GLOBAL/PK_LOCAL/PK_CONSTANT`, `PK_*_PTR(T)`
+- **Backends/caps:** `PK_BACKEND_{CUDA,HIP,OPENCL,HOST}`, `PK_HAS_{FP64,I64_ATOMICS,LOCAL_ATOMICS}`
+- **Types:** `pk_{i32,u32,i64,u64}`, `pk_real` (default `float`; define `PK_USE_DOUBLE` and check `PK_REAL_IS_*`)
+- **Builtins:** `threadIdx`, `blockIdx`, `blockDim`, `gridDim` (`x/y/z`)
+- **Keywords:** `__global__`, `__device__`, `__host__`, `__shared__`, `__constant__`, `__launch_bounds__(t,b)`
+- **Address spaces:** `__global/__local/__constant`, plus legacy `PK_*` helpers
 - **Utilities:** `PK_RESTRICT`, `PK_INLINE`, `PK_EXTERN_C`, `PK_BIND_DYNAMIC_SMEM(ptr)`
-- **Math:** CUDA-style float math (`sinf/cosf/expf/logf/powf/...` + `rsqrtf/sqrtf/fabsf/fminf/fmaxf/fmaf`) is mapped for OpenCL
+- **Math:** CUDA-style `*f` float math is mapped for OpenCL
 
 ### Atomics (portable baseline)
 
-OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, gpuni uses the same idea as OpenMM:
-**fixed-point(Q32.32) + integer atomics**.
+OpenCL 1.2 core atomics are **32-bit integer**. For portable float accumulation, prefer **fixed-point(Q32.32) + integer atomics**.
 
 Provided APIs:
 - `atomicAdd/atomicSub/atomicExch/atomicMin/atomicMax/atomicAnd/atomicOr/atomicXor/atomicCAS` (CUDA-style; **`int`/`unsigned int` only** on the portable OpenCL 1.2 baseline)
@@ -122,7 +110,7 @@ PK_EXTERN_C __global__ void pk_reduce_sum(/* ... */, __local float* pk_smem) {
 ```
 
 Host-side contract:
-- CUDA/HIP: pass `smem_bytes` as the dynamic shared size, and pass `NULL` for `pk_smem`
+- CUDA/HIP: set `smem_bytes` as the dynamic shared size; pass `NULL` for `pk_smem`
 - OpenCL: `clSetKernelArg(pk_smem_arg_index, smem_bytes, NULL)`
 
 Note (important):
