@@ -50,6 +50,7 @@ GU_EXTERN_C __global__ void gu_saxpy(int n,
 ```cpp
 #include "gpuni.h"
 #include "saxpy.gu.h"  // OpenCL JIT needs this; CUDA/HIP auto
+using namespace gu;   // recommended for unqualified API access
 
 int main() {
   int n = 1024; float a = 2.0f;
@@ -88,10 +89,10 @@ int main() {
 | Stream | `stream s; s.sync();` or `StreamSynchronize(s)` |
 | Event | `event e; e.record(s); e.sync();` or `EventRecord(e,s); EventSynchronize(e)` |
 | Timing | `ElapsedTime(e1, e2)` |
-| Error | `GetLastError()`, `GetErrorString(e)`, `GU_CHECK(expr)` |
+| Error | `Error_t`, `Success`, `GetLastError()`, `GetErrorString(e)`, `GU_CHECK(expr)` |
 | Dim3 | `dim3(x,y,z)` for 3D grid/block in `Launch(k, dim3 grid, dim3 block, ...)` |
 
-**MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H`
+**MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H` (or `MemcpyHostToDevice`, `MemcpyDeviceToHost`, `MemcpyDeviceToDevice`, `MemcpyHostToHost`)
 **Launch overloads:** `Launch(k, g, b, args)`, `Launch(k, g, b, smem, args)`, `Launch(k, g, b, stream, args)`, `Launch(k, g, b, smem, stream, args)`
 
 ## Build

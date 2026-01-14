@@ -563,8 +563,8 @@ static __device__ GU_INLINE double fixedToDouble(uint64 x) {
 
 namespace gu {
 
-using error = int;
-constexpr error success = 0;
+using Error_t = int;
+constexpr Error_t Success = 0;
 
 /* Q32.32 fixed-point conversion (host-side). */
 inline uint64 DoubleToFixed(double x) { return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D); }
@@ -572,9 +572,9 @@ inline double FixedToDouble(uint64 x) { return (double)(int64)x * GU_FIXED_Q32_3
 
 namespace detail {
 #if defined(GUH_NATIVE)
-  static error g_last_error = 0;
+  static Error_t g_last_error = 0;
 #elif defined(GUH_OPENCL)
-  static error g_last_error = CL_SUCCESS;
+  static Error_t g_last_error = CL_SUCCESS;
   static cl_context g_context = nullptr;
   static cl_command_queue g_queue = nullptr;
   static cl_device_id g_device = nullptr;
@@ -611,15 +611,15 @@ namespace detail {
 #endif
 } // namespace detail
 
-static inline error GetLastError() {
+static inline Error_t GetLastError() {
 #if defined(GUH_NATIVE)
-  error e = (error)GU_API(GetLastError)();
+  Error_t e = (Error_t)GU_API(GetLastError)();
   if (e != 0) detail::g_last_error = e;
 #endif
   return detail::g_last_error;
 }
 
-static inline const char* GetErrorString(error e) {
+static inline const char* GetErrorString(Error_t e) {
 #if defined(GUH_NATIVE)
   return GU_API(GetErrorString)((GU_API_T(Error))e);
 #elif defined(GUH_OPENCL)
@@ -635,14 +635,14 @@ static inline const char* GetErrorString(error e) {
 }
 
 #define GU_CHECK(expr) do { \
-  gu::error _e = (expr); \
-  if (_e != gu::success) fprintf(stderr, "gpuni error %d: %s at %s:%d\n", _e, gu::GetErrorString(_e), __FILE__, __LINE__); \
+  gu::Error_t _e = (expr); \
+  if (_e != gu::Success) fprintf(stderr, "gpuni error %d: %s at %s:%d\n", _e, gu::GetErrorString(_e), __FILE__, __LINE__); \
 } while(0)
 
 /* ---- Device ---- */
 static inline int GetDeviceCount() {
 #if defined(GUH_NATIVE)
-  int n = 0; detail::g_last_error = (error)GU_API(GetDeviceCount)(&n); return n;
+  int n = 0; detail::g_last_error = (Error_t)GU_API(GetDeviceCount)(&n); return n;
 #elif defined(GUH_OPENCL)
   detail::init_device_list();
   return (int)detail::g_all_devices.size();
@@ -653,7 +653,7 @@ static inline int GetDeviceCount() {
 
 static inline void SetDevice(int id) {
 #if defined(GUH_NATIVE)
-  detail::g_last_error = (error)GU_API(SetDevice)(id);
+  detail::g_last_error = (Error_t)GU_API(SetDevice)(id);
 #elif defined(GUH_OPENCL)
   detail::init_device_list();
   if (id < 0 || id >= (int)detail::g_all_devices.size()) { detail::g_last_error = CL_INVALID_DEVICE; return; }
@@ -673,7 +673,7 @@ static inline void SetDevice(int id) {
 
 static inline int GetDevice() {
 #if defined(GUH_NATIVE)
-  int id = 0; detail::g_last_error = (error)GU_API(GetDevice)(&id); return id;
+  int id = 0; detail::g_last_error = (Error_t)GU_API(GetDevice)(&id); return id;
 #elif defined(GUH_OPENCL)
   return detail::g_current_device;
 #else
@@ -683,7 +683,7 @@ static inline int GetDevice() {
 
 static inline void DeviceSync() {
 #if defined(GUH_NATIVE)
-  detail::g_last_error = (error)GU_API(DeviceSynchronize)();
+  detail::g_last_error = (Error_t)GU_API(DeviceSynchronize)();
 #elif defined(GUH_OPENCL)
   if (detail::g_queue) detail::g_last_error = clFinish(detail::g_queue);
 #endif
@@ -693,7 +693,7 @@ static inline void DeviceSync() {
 template<typename T> static inline T* Malloc(size_t count) {
   T* p = nullptr;
 #if defined(GUH_NATIVE)
-  detail::g_last_error = (error)GU_API(Malloc)(&p, count * sizeof(T));
+  detail::g_last_error = (Error_t)GU_API(Malloc)(&p, count * sizeof(T));
 #elif defined(GUH_OPENCL)
   cl_int e;
   p = (T*)clCreateBuffer(detail::g_context, CL_MEM_READ_WRITE, count * sizeof(T), nullptr, &e);
@@ -706,7 +706,7 @@ template<typename T> static inline T* Malloc(size_t count) {
 
 static inline void Free(void* p) {
 #if defined(GUH_NATIVE)
-  detail::g_last_error = (error)GU_API(Free)(p);
+  detail::g_last_error = (Error_t)GU_API(Free)(p);
 #elif defined(GUH_OPENCL)
   if (p) clReleaseMemObject((cl_mem)p);
 #else
@@ -716,7 +716,7 @@ static inline void Free(void* p) {
 
 static inline void Memset(void* p, int val, size_t bytes) {
 #if defined(GUH_NATIVE)
-  detail::g_last_error = (error)GU_API(Memset)(p, val, bytes);
+  detail::g_last_error = (Error_t)GU_API(Memset)(p, val, bytes);
 #elif defined(GUH_OPENCL)
   cl_uchar pattern = (cl_uchar)val;
   detail::g_last_error = clEnqueueFillBuffer(detail::g_queue, (cl_mem)p, &pattern, 1, 0, bytes, 0, nullptr, nullptr);
@@ -728,9 +728,9 @@ static inline void Memset(void* p, int val, size_t bytes) {
 template<typename T> static inline T* MallocHost(size_t count) {
   T* p = nullptr;
 #if defined(GUH_CUDA)
-  detail::g_last_error = (error)cudaMallocHost(&p, count * sizeof(T));
+  detail::g_last_error = (Error_t)cudaMallocHost(&p, count * sizeof(T));
 #elif defined(GUH_HIP)
-  detail::g_last_error = (error)hipHostMalloc(&p, count * sizeof(T));
+  detail::g_last_error = (Error_t)hipHostMalloc(&p, count * sizeof(T));
 #elif defined(GUH_OPENCL)
   size_t bytes = count * sizeof(T);
   cl_int e;
@@ -747,9 +747,9 @@ template<typename T> static inline T* MallocHost(size_t count) {
 
 static inline void FreeHost(void* p) {
 #if defined(GUH_CUDA)
-  detail::g_last_error = (error)cudaFreeHost(p);
+  detail::g_last_error = (Error_t)cudaFreeHost(p);
 #elif defined(GUH_HIP)
-  detail::g_last_error = (error)hipHostFree(p);
+  detail::g_last_error = (Error_t)hipHostFree(p);
 #elif defined(GUH_OPENCL)
   auto it = detail::g_pinned_map.find(p);
   if (it != detail::g_pinned_map.end()) {
@@ -773,7 +773,7 @@ static inline void Memcpy(void* dst, const void* src, size_t bytes, MemcpyKind k
 #if defined(GUH_NATIVE)
   auto ck = (kind == H2D) ? GU_MCPY(HostToDevice) : (kind == D2H) ? GU_MCPY(DeviceToHost) :
             (kind == D2D) ? GU_MCPY(DeviceToDevice) : GU_MCPY(HostToHost);
-  detail::g_last_error = (error)GU_API(Memcpy)(dst, src, bytes, ck);
+  detail::g_last_error = (Error_t)GU_API(Memcpy)(dst, src, bytes, ck);
 #elif defined(GUH_OPENCL)
   switch (kind) {
     case H2D: detail::g_last_error = clEnqueueWriteBuffer(detail::g_queue, (cl_mem)dst, CL_TRUE, 0, bytes, src, 0, nullptr, nullptr); break;
@@ -796,7 +796,7 @@ class stream {
 public:
   stream() {
 #if defined(GUH_NATIVE)
-    detail::g_last_error = (error)GU_API(StreamCreate)(&s_);
+    detail::g_last_error = (Error_t)GU_API(StreamCreate)(&s_);
 #elif defined(GUH_OPENCL)
     cl_int e;
     q_ = clCreateCommandQueue(detail::g_context, detail::g_device, CL_QUEUE_PROFILING_ENABLE, &e);
@@ -805,7 +805,7 @@ public:
   }
   ~stream() {
 #if defined(GUH_NATIVE)
-    if (s_) detail::g_last_error = (error)GU_API(StreamDestroy)(s_);
+    if (s_) detail::g_last_error = (Error_t)GU_API(StreamDestroy)(s_);
 #elif defined(GUH_OPENCL)
     if (q_) clReleaseCommandQueue(q_);
 #endif
@@ -814,7 +814,7 @@ public:
   stream& operator=(const stream&) = delete;
   void sync() {
 #if defined(GUH_NATIVE)
-    detail::g_last_error = (error)GU_API(StreamSynchronize)(s_);
+    detail::g_last_error = (Error_t)GU_API(StreamSynchronize)(s_);
 #elif defined(GUH_OPENCL)
     if (q_) detail::g_last_error = clFinish(q_);
 #endif
@@ -832,7 +832,7 @@ static inline void MemcpyAsync(void* dst, const void* src, size_t bytes, MemcpyK
 #if defined(GUH_NATIVE)
   auto ck = (kind == H2D) ? GU_MCPY(HostToDevice) : (kind == D2H) ? GU_MCPY(DeviceToHost) :
             (kind == D2D) ? GU_MCPY(DeviceToDevice) : GU_MCPY(HostToHost);
-  detail::g_last_error = (error)GU_API(MemcpyAsync)(dst, src, bytes, ck, s.native());
+  detail::g_last_error = (Error_t)GU_API(MemcpyAsync)(dst, src, bytes, ck, s.native());
 #elif defined(GUH_OPENCL)
   switch (kind) {
     case H2D: detail::g_last_error = clEnqueueWriteBuffer(s.native(), (cl_mem)dst, CL_FALSE, 0, bytes, src, 0, nullptr, nullptr); break;
@@ -855,12 +855,12 @@ class event {
 public:
   event() {
 #if defined(GUH_NATIVE)
-    detail::g_last_error = (error)GU_API(EventCreate)(&e_);
+    detail::g_last_error = (Error_t)GU_API(EventCreate)(&e_);
 #endif
   }
   ~event() {
 #if defined(GUH_NATIVE)
-    if (e_) detail::g_last_error = (error)GU_API(EventDestroy)(e_);
+    if (e_) detail::g_last_error = (Error_t)GU_API(EventDestroy)(e_);
 #elif defined(GUH_OPENCL)
     if (e_) clReleaseEvent(e_);
 #endif
@@ -869,7 +869,7 @@ public:
   event& operator=(const event&) = delete;
   void record(stream& s) {
 #if defined(GUH_NATIVE)
-    detail::g_last_error = (error)GU_API(EventRecord)(e_, s.native());
+    detail::g_last_error = (Error_t)GU_API(EventRecord)(e_, s.native());
 #elif defined(GUH_OPENCL)
     if (e_) clReleaseEvent(e_);
     detail::g_last_error = clEnqueueMarkerWithWaitList(s.native(), 0, nullptr, &e_);
@@ -877,7 +877,7 @@ public:
   }
   void sync() {
 #if defined(GUH_NATIVE)
-    detail::g_last_error = (error)GU_API(EventSynchronize)(e_);
+    detail::g_last_error = (Error_t)GU_API(EventSynchronize)(e_);
 #elif defined(GUH_OPENCL)
     if (e_) clWaitForEvents(1, &e_);
 #endif
@@ -894,7 +894,7 @@ static inline void EventSynchronize(event& e) { e.sync(); }
 
 static inline float ElapsedTime(event& start, event& end) {
 #if defined(GUH_NATIVE)
-  float ms = 0; detail::g_last_error = (error)GU_API(EventElapsedTime)(&ms, start.native(), end.native()); return ms;
+  float ms = 0; detail::g_last_error = (Error_t)GU_API(EventElapsedTime)(&ms, start.native(), end.native()); return ms;
 #elif defined(GUH_OPENCL)
   start.sync(); end.sync();
   cl_ulong t0 = 0, t1 = 0;
@@ -1029,8 +1029,6 @@ static inline void Launch(detail::kernel_ref kr, int grid, int block, size_t sme
 #endif
 
 } // namespace gu
-
-using namespace gu;
 
 #endif /* __cplusplus && (GUH_CUDA || GUH_HIP || GUH_OPENCL) */
 
