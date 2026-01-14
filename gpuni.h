@@ -110,6 +110,7 @@ typedef uint64 gu_u64;
 #  define __device__
 #  define __global__ __kernel
 #  define __shared__ __local
+#  define __shared __local
 #  define __constant__ __constant
 #  define __launch_bounds__(t, b)
 
@@ -129,11 +130,13 @@ typedef uint64 gu_u64;
 #  define GU_LOCAL_PTR(T) GU_LOCAL T*
 #  define GU_CONSTANT_PTR(T) GU_CONSTANT T*
 
-#  define GU_RESTRICT restrict
+/* Map CUDA __restrict__ to OpenCL restrict */
+#  define __restrict__ restrict
+
 #  define GU_INLINE inline
 
 /* Dynamic shared memory: OpenCL uses kernel param, no binding needed */
-#  define GU_BIND_DYNAMIC_SMEM(ptr) /* no-op */
+#  define bindSharedMem(ptr) /* no-op */
 
 /* CUDA/C99 float math aliases for OpenCL (so kernels can stay CUDA-like). */
 #  ifndef rsqrtf
@@ -296,16 +299,16 @@ static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
 /* Q32.32 fixed-point accumulator: high-throughput atomic add without CAS contention.
    Use for summing many values; convert result back to double after kernel completes.
    Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
-static GU_INLINE void atomicAddFixed(GU_GLOBAL uint64* p, double x) {
-  gu_atomic_add_u64(p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
+static GU_INLINE void atomicAddFixed(GU_GLOBAL int64* p, double x) {
+  gu_atomic_add_u64((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
-static GU_INLINE uint64 doubleToFixed(double x) {
-  return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D);
+static GU_INLINE int64 doubleToFixed(double x) {
+  return (int64)(x * GU_FIXED_Q32_32_SCALE_D);
 }
 
-static GU_INLINE double fixedToDouble(uint64 x) {
-  return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D;
+static GU_INLINE double fixedToDouble(int64 x) {
+  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
 }
 
 /* Float atomic add (OpenCL 1.2 has no atomic_add(float); emulate via CAS on u32 bits).
@@ -359,7 +362,7 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 #define atomicMaxFloat guAtomicMaxF32
 
 /* OpenCL is C, no extern "C" needed */
-#  define GU_EXTERN_C
+#  define EXTERN_C
 
 #else
 
@@ -379,6 +382,7 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 #    undef __constant
 #  endif
 #  define __constant
+#  define __shared __shared__
 
 #  define GU_GLOBAL
 #  define GU_LOCAL
@@ -389,11 +393,11 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 #  define GU_LOCAL_PTR(T) T*
 #  define GU_CONSTANT_PTR(T) T*
 
+/* __restrict__ is native in CUDA/HIP/GCC/Clang; MSVC uses __restrict */
 #  if defined(_MSC_VER)
-#    define GU_RESTRICT __restrict
-#  else
-#    define GU_RESTRICT __restrict__
+#    define __restrict__ __restrict
 #  endif
+
 #  if defined(GU_BACKEND_CUDA) || defined(GU_BACKEND_HIP)
 #    define GU_INLINE __forceinline__
 #  else
@@ -401,7 +405,7 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 #  endif
 
 /* Dynamic shared memory: CUDA/HIP binds to extern __shared__ */
-#  define GU_BIND_DYNAMIC_SMEM(ptr) \
+#  define bindSharedMem(ptr) \
      extern __shared__ unsigned char _gu_smem_[]; \
      (ptr) = (decltype(ptr))(&_gu_smem_[0])
 
@@ -468,21 +472,21 @@ static __device__ GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 /* Q32.32 fixed-point accumulator: high-throughput atomic add without CAS contention.
    Use for summing many values; convert result back to double after kernel completes.
    Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
-static __device__ GU_INLINE void atomicAddFixed(GU_GLOBAL uint64* p, double x) {
-  gu_atomic_add_u64(p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
+static __device__ GU_INLINE void atomicAddFixed(GU_GLOBAL int64* p, double x) {
+  gu_atomic_add_u64((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
-static __device__ GU_INLINE uint64 doubleToFixed(double x) {
-  return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D);
+static __device__ GU_INLINE int64 doubleToFixed(double x) {
+  return (int64)(x * GU_FIXED_Q32_32_SCALE_D);
 }
 
-static __device__ GU_INLINE double fixedToDouble(uint64 x) {
-  return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D;
+static __device__ GU_INLINE double fixedToDouble(int64 x) {
+  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
 }
 #  endif
 
 /* Prevent C++ name mangling for kernel symbols */
-#  define GU_EXTERN_C extern "C"
+#  define EXTERN_C extern "C"
 
 #endif
 
@@ -568,8 +572,8 @@ using Error_t = int;
 constexpr Error_t Success = 0;
 
 /* Q32.32 fixed-point conversion (host-side). */
-inline uint64 DoubleToFixed(double x) { return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D); }
-inline double FixedToDouble(uint64 x) { return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D; }
+inline int64 DoubleToFixed(double x) { return (int64)(x * GU_FIXED_Q32_32_SCALE_D); }
+inline double FixedToDouble(int64 x) { return (double)x * GU_FIXED_Q32_32_INV_SCALE_D; }
 
 namespace detail {
 #if defined(GUH_NATIVE)
