@@ -38,9 +38,9 @@ GU_EXTERN_C __global__ void gu_saxpy(int n,
 | Category | API |
 |----------|-----|
 | Types | `int`, `uint`, `int64`, `uint64`, `float`, `double` |
-| Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor`, `guAtomicAddU64` (void, add-only) |
-| Atomics (float) | `guAtomicAddF`, `guAtomicMinF`, `guAtomicMaxF` |
-| Accumulator | `gu_atomic_add_fixed_q32_32(ptr, val)` - portable float accumulation via Q32.32 fixed-point; convert back with `gu_fixed_q32_32_to_real()` |
+| Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor` |
+| Atomics (float) | `atomicAddFloat`, `atomicMinFloat`, `atomicMaxFloat` |
+| Accumulator (Q32.32) | Kernel: `atomicAddFixed(uint64* acc, double v)`. Host: `DoubleToFixed(double v)`, `FixedToDouble(uint64 acc)`. Usage: (1) init `uint64 acc=0`, (2) kernel calls `atomicAddFixed(&acc, v)` (adds `trunc(v*2^32)`), (3) host reads `FixedToDouble(acc)`. Range ±2^31 (~2e9), ~9 digits. |
 | Dynamic smem | `GU_BIND_DYNAMIC_SMEM(gu_smem)` with `GU_LOCAL float* gu_smem` as **last param** |
 | Restrict | `GU_RESTRICT` (pointer no-alias hint) |
 | Math | CUDA-style `sinf`, `cosf`, `rsqrtf`, `fminf`, `fmaxf`, `fmaf`, etc. work directly |
@@ -54,26 +54,26 @@ GU_EXTERN_C __global__ void gu_saxpy(int n,
 int main() {
   int n = 1024; float a = 2.0f;
 
-  gu::SetDevice(0);  // must call before Malloc/GU_KERNEL
+  SetDevice(0);  // must call before Malloc/GU_KERNEL
 
-  float* d_x = gu::Malloc<float>(n);
-  float* d_y = gu::Malloc<float>(n);
-  float* h_x = gu::MallocHost<float>(n);  // pinned memory
-  float* h_y = gu::MallocHost<float>(n);
+  float* d_x = Malloc<float>(n);
+  float* d_y = Malloc<float>(n);
+  float* h_x = MallocHost<float>(n);  // pinned memory
+  float* h_y = MallocHost<float>(n);
 
   for (int i = 0; i < n; i++) { h_x[i] = 1.0f; h_y[i] = 2.0f; }
 
-  gu::Memcpy(d_x, h_x, n * sizeof(float), gu::H2D);
-  gu::Memcpy(d_y, h_y, n * sizeof(float), gu::H2D);
+  Memcpy(d_x, h_x, n * sizeof(float), H2D);
+  Memcpy(d_y, h_y, n * sizeof(float), H2D);
 
   auto k = GU_KERNEL(gu_saxpy);  // cache and reuse; avoid repeated JIT
-  gu::Launch(k, (n + 255) / 256, 256, n, d_y, d_x, a);
+  Launch(k, (n + 255) / 256, 256, n, d_y, d_x, a);
 
-  gu::DeviceSync();
-  gu::Memcpy(h_y, d_y, n * sizeof(float), gu::D2H);
+  DeviceSync();
+  Memcpy(h_y, d_y, n * sizeof(float), D2H);
 
-  gu::Free(d_x); gu::Free(d_y);
-  gu::FreeHost(h_x); gu::FreeHost(h_y);
+  Free(d_x); Free(d_y);
+  FreeHost(h_x); FreeHost(h_y);
 }
 ```
 
@@ -85,8 +85,9 @@ int main() {
 | Memory | `Malloc<T>(n)`, `Free(p)`, `Memset(p,v,bytes)`, `MallocHost<T>(n)`, `FreeHost(p)` |
 | Copy | `Memcpy(dst,src,bytes,kind)`, `MemcpyAsync(...,stream)` |
 | Kernel | `GU_KERNEL(fn)`, `Launch(k, grid, block, args...)` |
-| Stream | `stream s; s.sync();` |
-| Event | `event e; e.record(s); e.sync(); ElapsedTime(e1,e2)` |
+| Stream | `stream s; s.sync();` or `StreamSynchronize(s)` |
+| Event | `event e; e.record(s); e.sync();` or `EventRecord(e,s); EventSynchronize(e)` |
+| Timing | `ElapsedTime(e1, e2)` |
 | Error | `GetLastError()`, `GetErrorString(e)`, `GU_CHECK(expr)` |
 | Dim3 | `dim3(x,y,z)` for 3D grid/block in `Launch(k, dim3 grid, dim3 block, ...)` |
 

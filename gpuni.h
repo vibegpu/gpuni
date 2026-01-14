@@ -293,31 +293,20 @@ static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
 #  endif
 }
 
-static GU_INLINE gu_i64 gu_real_to_fixed_q32_32(float x) {
-  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_F);
+/* Q32.32 fixed-point accumulator: high-throughput atomic add without CAS contention.
+   Use for summing many values; convert result back to double after kernel completes.
+   Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
+static GU_INLINE void atomicAddFixed(GU_GLOBAL uint64* p, double x) {
+  gu_atomic_add_u64(p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
-static GU_INLINE float gu_fixed_q32_32_to_real(gu_i64 x) {
-  return (float)x * GU_FIXED_Q32_32_INV_SCALE_F;
+static GU_INLINE uint64 doubleToFixed(double x) {
+  return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D);
 }
 
-static GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
-  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
+static GU_INLINE double fixedToDouble(uint64 x) {
+  return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D;
 }
-
-#if GU_HAS_FP64
-static GU_INLINE gu_i64 gu_real_to_fixed_q32_32_f64(double x) {
-  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_D);
-}
-
-static GU_INLINE double gu_fixed_q32_32_to_real_f64(gu_i64 x) {
-  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
-}
-
-static GU_INLINE void gu_atomic_add_fixed_q32_32_f64(GU_GLOBAL gu_u64* p, double x) {
-  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32_f64(x));
-}
-#endif
 
 /* Float atomic add (OpenCL 1.2 has no atomic_add(float); emulate via CAS on u32 bits).
    Correctness-first; prefer fixed-point(Q32.32) for high-throughput accumulation. */
@@ -335,13 +324,8 @@ static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
 /* Unified atomics for the gpuni dialect.
    Notes:
    - OpenCL C 1.2 cannot overload by type for user-defined functions; keep names explicit.
-   - `guAtomicAdd` matches CUDA int32 `atomicAdd`.
-   - Float min/max/add use CAS on u32 bits for OpenCL portability.
-   - U64 add is addition-only (no old value); see gu_atomic_add_u64 notes above. */
-static GU_INLINE gu_i32 guAtomicAdd(GU_GLOBAL gu_i32* p, gu_i32 val) { return atomicAdd(p, val); }
-static GU_INLINE gu_u32 guAtomicAddU32(GU_GLOBAL gu_u32* p, gu_u32 val) { return atomicAdd(p, val); }
+   - Float min/max/add use CAS on u32 bits for OpenCL portability. */
 static GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
-static GU_INLINE void guAtomicAddU64(GU_GLOBAL gu_u64* p, gu_u64 val) { gu_atomic_add_u64(p, val); }
 
 static GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
   volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
@@ -369,14 +353,10 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
   }
 }
 
-/* Short aliases for float atomics */
-#define guAtomicAddF guAtomicAddF32
-#define guAtomicMinF guAtomicMinF32
-#define guAtomicMaxF guAtomicMaxF32
-
-/* Back-compat typed helpers (discouraged; prefer guAtomic*). */
-static GU_INLINE float atomicAdd_f32(GU_GLOBAL float* p, float x) { return guAtomicAddF32(p, x); }
-static GU_INLINE void atomicAdd_u64(GU_GLOBAL gu_u64* p, gu_u64 val) { guAtomicAddU64(p, val); }
+/* Float atomic aliases */
+#define atomicAddFloat guAtomicAddF32
+#define atomicMinFloat guAtomicMinF32
+#define atomicMaxFloat guAtomicMaxF32
 
 /* OpenCL is C, no extern "C" needed */
 #  define GU_EXTERN_C
@@ -452,12 +432,7 @@ static __device__ GU_INLINE float gu_bitcast_f32_from_u32(gu_u32 x) {
   return v.f;
 }
 
-static __device__ GU_INLINE gu_i32 guAtomicAdd(GU_GLOBAL gu_i32* p, gu_i32 val) { return atomicAdd((int*)p, (int)val); }
-static __device__ GU_INLINE gu_u32 guAtomicAddU32(GU_GLOBAL gu_u32* p, gu_u32 val) {
-  return atomicAdd((unsigned int*)p, (unsigned int)val);
-}
 static __device__ GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
-static __device__ GU_INLINE void guAtomicAddU64(GU_GLOBAL gu_u64* p, gu_u64 val) { gu_atomic_add_u64(p, val); }
 
 static __device__ GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
   gu_u32* u = (gu_u32*)p;
@@ -485,40 +460,25 @@ static __device__ GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
   }
 }
 
-/* Short aliases for float atomics */
-#define guAtomicAddF guAtomicAddF32
-#define guAtomicMinF guAtomicMinF32
-#define guAtomicMaxF guAtomicMaxF32
+/* Float atomic aliases */
+#define atomicAddFloat guAtomicAddF32
+#define atomicMinFloat guAtomicMinF32
+#define atomicMaxFloat guAtomicMaxF32
 
-/* Back-compat typed helpers (discouraged; prefer guAtomic*). */
-static __device__ GU_INLINE float atomicAdd_f32(GU_GLOBAL float* p, float x) { return guAtomicAddF32(p, x); }
-static __device__ GU_INLINE void atomicAdd_u64(GU_GLOBAL gu_u64* p, gu_u64 val) { guAtomicAddU64(p, val); }
-
-static __device__ GU_INLINE gu_i64 gu_real_to_fixed_q32_32(float x) {
-  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_F);
+/* Q32.32 fixed-point accumulator: high-throughput atomic add without CAS contention.
+   Use for summing many values; convert result back to double after kernel completes.
+   Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
+static __device__ GU_INLINE void atomicAddFixed(GU_GLOBAL uint64* p, double x) {
+  gu_atomic_add_u64(p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
-static __device__ GU_INLINE float gu_fixed_q32_32_to_real(gu_i64 x) {
-  return (float)x * GU_FIXED_Q32_32_INV_SCALE_F;
+static __device__ GU_INLINE uint64 doubleToFixed(double x) {
+  return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D);
 }
 
-static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
-  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
+static __device__ GU_INLINE double fixedToDouble(uint64 x) {
+  return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D;
 }
-
-#if GU_HAS_FP64
-static __device__ GU_INLINE gu_i64 gu_real_to_fixed_q32_32_f64(double x) {
-  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_D);
-}
-
-static __device__ GU_INLINE double gu_fixed_q32_32_to_real_f64(gu_i64 x) {
-  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
-}
-
-static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32_f64(GU_GLOBAL gu_u64* p, double x) {
-  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32_f64(x));
-}
-#endif
 #  endif
 
 /* Prevent C++ name mangling for kernel symbols */
@@ -605,6 +565,10 @@ namespace gu {
 
 using error = int;
 constexpr error success = 0;
+
+/* Q32.32 fixed-point conversion (host-side). */
+inline uint64 DoubleToFixed(double x) { return (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D); }
+inline double FixedToDouble(uint64 x) { return (double)(int64)x * GU_FIXED_Q32_32_INV_SCALE_D; }
 
 namespace detail {
 #if defined(GUH_NATIVE)
@@ -822,7 +786,7 @@ static inline void Memcpy(void* dst, const void* src, size_t bytes, MemcpyKind k
 #endif
 }
 
-/* ---- Stream ---- */
+/* ---- stream ---- */
 class stream {
 #if defined(GUH_NATIVE)
   GU_API_T(Stream) s_ = nullptr;
@@ -862,6 +826,8 @@ public:
 #endif
 };
 
+static inline void StreamSynchronize(stream& s) { s.sync(); }
+
 static inline void MemcpyAsync(void* dst, const void* src, size_t bytes, MemcpyKind kind, stream& s) {
 #if defined(GUH_NATIVE)
   auto ck = (kind == H2D) ? GU_MCPY(HostToDevice) : (kind == D2H) ? GU_MCPY(DeviceToHost) :
@@ -879,7 +845,7 @@ static inline void MemcpyAsync(void* dst, const void* src, size_t bytes, MemcpyK
 #endif
 }
 
-/* ---- Event ---- */
+/* ---- event ---- */
 class event {
 #if defined(GUH_NATIVE)
   GU_API_T(Event) e_ = nullptr;
@@ -922,6 +888,9 @@ public:
   cl_event native() const { return e_; }
 #endif
 };
+
+static inline void EventRecord(event& e, stream& s) { e.record(s); }
+static inline void EventSynchronize(event& e) { e.sync(); }
 
 static inline float ElapsedTime(event& start, event& end) {
 #if defined(GUH_NATIVE)
@@ -1060,6 +1029,8 @@ static inline void Launch(detail::kernel_ref kr, int grid, int block, size_t sme
 #endif
 
 } // namespace gu
+
+using namespace gu;
 
 #endif /* __cplusplus && (GUH_CUDA || GUH_HIP || GUH_OPENCL) */
 

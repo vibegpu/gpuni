@@ -4,7 +4,7 @@ description: >-
   Write, refactor, and review gpuni CUDA-truth dialect kernels (*.gu.cu)
   that compile as CUDA/HIP and render to OpenCL C 1.2. Use when working on:
   (1) *.gu.cu kernels, (2) OpenCL 1.2 address spaces (GU_GLOBAL/GU_LOCAL/GU_CONSTANT),
-  (3) portable atomics (atomic* + guAtomicAddF32/guAtomicAddU64 + fixed-point helpers), (4) dynamic shared memory (GU_BIND_DYNAMIC_SMEM),
+  (3) portable atomics (atomic* + atomicAddFloat/MinFloat/MaxFloat + atomicAddFixed), (4) dynamic shared memory (GU_BIND_DYNAMIC_SMEM),
   or (5) portability reviews for CUDA/HIP/OpenCL consistency.
 ---
 
