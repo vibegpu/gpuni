@@ -541,6 +541,7 @@ static __device__ GU_INLINE double fixedToDouble(uint64 x) {
 #if defined(__cplusplus) && (defined(GUH_CUDA) || defined(GUH_HIP) || defined(GUH_OPENCL))
 
 #include <cstring>
+#include <cstdio>
 #if defined(GUH_OPENCL)
 #include <unordered_map>
 #include <vector>
@@ -907,7 +908,9 @@ static inline float ElapsedTime(event& start, event& end) {
 }
 
 /* ---- dim3 ---- */
-#if !defined(GUH_NATIVE)
+#if defined(GUH_NATIVE)
+using dim3 = ::dim3;  /* alias to system dim3 for consistent gu::dim3 usage */
+#else
 struct dim3 {
   unsigned x, y, z;
   dim3(unsigned x_ = 1, unsigned y_ = 1, unsigned z_ = 1) : x(x_), y(y_), z(z_) {}
@@ -974,6 +977,21 @@ static inline void Launch(Kernel kernel, dim3 grid, dim3 block, const Args&... a
 }
 
 template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, dim3 grid, dim3 block, size_t smem, const Args&... args) {
+  kernel<<<grid, block, smem>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, dim3 grid, dim3 block, stream& s, const Args&... args) {
+  kernel<<<grid, block, 0, s.native()>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, dim3 grid, dim3 block, size_t smem, stream& s, const Args&... args) {
+  kernel<<<grid, block, smem, s.native()>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
 static inline void Launch(Kernel kernel, int grid, int block, size_t smem, const Args&... args) {
   kernel<<<grid, block, smem>>>(args...);
 }
@@ -1002,6 +1020,32 @@ static inline void Launch(detail::kernel_ref kr, dim3 grid, dim3 block, const Ar
   size_t global[3] = {grid.x * block.x, grid.y * block.y, grid.z * block.z};
   size_t local[3] = {block.x, block.y, block.z};
   clEnqueueNDRangeKernel(detail::g_queue, kr.k, 3, nullptr, global, local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, dim3 grid, dim3 block, size_t smem, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  if (smem > 0) clSetKernelArg(kr.k, (cl_uint)idx, smem, nullptr);
+  size_t global[3] = {grid.x * block.x, grid.y * block.y, grid.z * block.z};
+  size_t local[3] = {block.x, block.y, block.z};
+  clEnqueueNDRangeKernel(detail::g_queue, kr.k, 3, nullptr, global, local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, dim3 grid, dim3 block, stream& s, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  size_t global[3] = {grid.x * block.x, grid.y * block.y, grid.z * block.z};
+  size_t local[3] = {block.x, block.y, block.z};
+  clEnqueueNDRangeKernel(s.native(), kr.k, 3, nullptr, global, local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, dim3 grid, dim3 block, size_t smem, stream& s, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  if (smem > 0) clSetKernelArg(kr.k, (cl_uint)idx, smem, nullptr);
+  size_t global[3] = {grid.x * block.x, grid.y * block.y, grid.z * block.z};
+  size_t local[3] = {block.x, block.y, block.z};
+  clEnqueueNDRangeKernel(s.native(), kr.k, 3, nullptr, global, local, 0, nullptr, nullptr);
 }
 
 template<typename... Args>

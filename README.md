@@ -93,7 +93,11 @@ int main() {
 | Dim3 | `dim3(x,y,z)` for 3D grid/block in `Launch(k, dim3 grid, dim3 block, ...)` |
 
 **MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H` (or `MemcpyHostToDevice`, `MemcpyDeviceToHost`, `MemcpyDeviceToDevice`, `MemcpyHostToHost`)
-**Launch overloads:** `Launch(k, g, b, args)`, `Launch(k, g, b, smem, args)`, `Launch(k, g, b, stream, args)`, `Launch(k, g, b, smem, stream, args)`
+**Launch overloads:** All combinations of `int` or `dim3` for grid/block, with optional `smem` and/or `stream`:
+- `Launch(k, g, b, args)`, `Launch(k, dim3, dim3, args)`
+- `Launch(k, g, b, smem, args)`, `Launch(k, dim3, dim3, smem, args)`
+- `Launch(k, g, b, stream, args)`, `Launch(k, dim3, dim3, stream, args)`
+- `Launch(k, g, b, smem, stream, args)`, `Launch(k, dim3, dim3, smem, stream, args)`
 
 ## Build
 
