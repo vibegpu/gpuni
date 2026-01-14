@@ -1,12 +1,12 @@
 # gpuni
 
-A small CUDA-truth kernel dialect for cross-platform many-core GPU compute (CUDA, HIP, OpenCL C 1.2).
+A small AI-friendly CUDA-truth kernel dialect for cross-platform GPU compute (CUDA, HIP, OpenCL C 1.2).
 
 **For AI coding (Codex/Claude Code):** load the `gpuni` skill at `skills/gpuni/SKILL.md` (prompt: use `$gpuni`).
 
 **Package:** `gpuni.h` + `tools/render.c`
 
-## Kernel Example
+## Kernel
 
 Write `*.gu.cu`:
 
@@ -14,131 +14,91 @@ Write `*.gu.cu`:
 #include "gpuni.h"
 
 GU_EXTERN_C __global__ void gu_saxpy(int n,
-                                    GU_GLOBAL float* y,
-                                    GU_GLOBAL const float* x,
-                                    float a) {
+                                     GU_GLOBAL float* y,
+                                     GU_GLOBAL const float* x,
+                                     float a) {
   int i = (int)(blockIdx.x * blockDim.x + threadIdx.x);
-  if (i < n) y[i] = a * x[i] + y[i];
+  GU_GLOBAL const float* p = x + i;   // pointer alias must keep qualifier
+  __shared__ float tile[256];         // shared memory
+  GU_LOCAL float* t = tile;           // alias to shared needs GU_LOCAL
+  if (i < n) y[i] = a * (*p) + y[i];
 }
-```
-
-Build:
-
-```bash
-cc -O2 -std=c99 -o gpuni-render tools/render.c
-
-nvcc  -I. -c saxpy.gu.cu                      # CUDA
-hipcc -I. -c saxpy.gu.cu                      # HIP
-./gpuni-render saxpy.gu.cu -o saxpy.cl        # OpenCL
 ```
 
 ## Dialect Rules
 
-1. **Entry:** `GU_EXTERN_C __global__ void gu_<name>(...)`
-2. **Address spaces:** annotate every pointer with `GU_GLOBAL/GU_LOCAL/GU_CONSTANT` (including aliases)
-   - Legacy pointer macros `GU_GLOBAL_PTR(T)` / `GU_LOCAL_PTR(T)` / `GU_CONSTANT_PTR(T)` are allowed; `GU_CONSTANT_PTR` does not inject `const`, so write `GU_CONSTANT_PTR(const float)`.
+**Required:**
+- Entry: `GU_EXTERN_C __global__ void gu_<name>(...)`
+- Annotate pointers: `GU_GLOBAL` / `GU_LOCAL` / `GU_CONSTANT` (including aliases)
 
-   | Keyword | Meaning | Note |
-   |---------|---------|------|
-   | `__global__` | kernel entry | CUDA native |
-   | `GU_GLOBAL` | global memory pointer | no-op in CUDA/HIP |
-   | `GU_LOCAL` | local/shared memory pointer | for dynamic shared memory |
-   | `GU_CONSTANT` | constant memory pointer | no-op in CUDA/HIP |
-   | `__shared__` | shared array declaration | use for `__shared__ float arr[N]` |
+**Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
 
-   ```cpp
-   GU_GLOBAL const float* p = x + off;  // alias must keep GU_GLOBAL
+## Kernel API Reference
 
-   __shared__ float tile[256];
-   GU_LOCAL float* t = tile;            // alias to shared must keep GU_LOCAL
-   ```
-3. **C subset only:** no templates/classes/overloads/exceptions/new/delete
-4. **Uniform barriers:** `__syncthreads()` must be reached by all threads (no divergent barrier)
-5. **No `float3` in buffers:** use `float4` or SoA
-6. **No warp/subgroup intrinsics:** avoid `__shfl*`, `__ballot*`, cooperative groups; use `__shared__` + `__syncthreads()`
+| Category | API |
+|----------|-----|
+| Types | `int`, `uint`, `int64`, `uint64`, `float`, `double` |
+| Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor`, `guAtomicAddU64` (void, add-only) |
+| Atomics (float) | `guAtomicAddF`, `guAtomicMinF`, `guAtomicMaxF` |
+| Accumulator | `gu_atomic_add_fixed_q32_32(ptr, val)` - portable float accumulation via Q32.32 fixed-point; convert back with `gu_fixed_q32_32_to_real()` |
+| Dynamic smem | `GU_BIND_DYNAMIC_SMEM(gu_smem)` with `GU_LOCAL float* gu_smem` as **last param** |
+| Restrict | `GU_RESTRICT` (pointer no-alias hint) |
+| Math | CUDA-style `sinf`, `cosf`, `rsqrtf`, `fminf`, `fmaxf`, `fmaf`, etc. work directly |
 
-## Types and Helpers
-
-Prefer CUDA/C99 spellings in kernels (e.g. `rsqrtf`, `fmaf`, `atomicAdd`).
+## Host
 
 ```cpp
-// Builtins (always available): threadIdx/blockIdx/blockDim/gridDim (.x/.y/.z)
-
-// Portable integer types
-gu_i32, gu_u32, gu_i64, gu_u64
-
-// Device helper function
-__device__ float my_helper(GU_GLOBAL const float* p) { return p[0] * 2.0f; }
-
-// Optional: double precision (define before include)
-#define GU_USE_DOUBLE
 #include "gpuni.h"
-gu_real x;  // float by default, double if GU_USE_DOUBLE and GU_HAS_FP64
-```
-
-## Host API
-
-Enable host API by defining `GUH_CUDA`, `GUH_HIP`, or `GUH_OPENCL` before including `gpuni.h`.
-
-```cpp
-#define GUH_CUDA  // or GUH_HIP, GUH_OPENCL
-#include "gpuni.h"
-#include "saxpy.gu.h"
-
-#if defined(GUH_CUDA) || defined(GUH_HIP)
-extern "C" __global__ void gu_saxpy(int, float*, const float*, float);
-#endif
+#include "saxpy.gu.h"  // OpenCL JIT needs this; CUDA/HIP auto
 
 int main() {
-  gu_ctx ctx; gu_kernel k;
   int n = 1024; float a = 2.0f;
-  float *h_x, *h_y;  // host arrays
 
-  gu_ctx_init(&ctx, 0);
-  void* d_x = gu_malloc(&ctx, n * sizeof(float));
-  void* d_y = gu_malloc(&ctx, n * sizeof(float));
-  gu_h2d(&ctx, d_x, h_x, n * sizeof(float));
-  gu_h2d(&ctx, d_y, h_y, n * sizeof(float));
+  gu::SetDevice(0);  // must call before Malloc/GU_KERNEL
 
-  GU_KERNEL(&ctx, &k, gu_saxpy);
-  gu_arg(&k, n); gu_arg(&k, d_y); gu_arg(&k, d_x); gu_arg(&k, a);
-  gu_run(&ctx, &k, (n + 255) / 256, 256, 0);
+  float* d_x = gu::Malloc<float>(n);
+  float* d_y = gu::Malloc<float>(n);
+  float* h_x = gu::MallocHost<float>(n);  // pinned memory
+  float* h_y = gu::MallocHost<float>(n);
 
-  gu_sync(&ctx);
-  gu_d2h(&ctx, h_y, d_y, n * sizeof(float));
+  for (int i = 0; i < n; i++) { h_x[i] = 1.0f; h_y[i] = 2.0f; }
 
-  gu_kernel_destroy(&k);
-  gu_free(&ctx, d_x); gu_free(&ctx, d_y);
-  gu_ctx_destroy(&ctx);
+  gu::Memcpy(d_x, h_x, n * sizeof(float), gu::H2D);
+  gu::Memcpy(d_y, h_y, n * sizeof(float), gu::H2D);
+
+  auto k = GU_KERNEL(gu_saxpy);  // cache and reuse; avoid repeated JIT
+  gu::Launch(k, (n + 255) / 256, 256, n, d_y, d_x, a);
+
+  gu::DeviceSync();
+  gu::Memcpy(h_y, d_y, n * sizeof(float), gu::D2H);
+
+  gu::Free(d_x); gu::Free(d_y);
+  gu::FreeHost(h_x); gu::FreeHost(h_y);
 }
 ```
 
-Render for OpenCL: `./gpuni-render saxpy.gu.cu -o saxpy.cl --emit-header saxpy.gu.h`
-Host build: `nvcc -DGUH_CUDA host.cu` / `hipcc -DGUH_HIP host.cu` / `cc -DGUH_OPENCL host.c -lOpenCL`
+### Host API Reference
 
-Also: `gu_d2d(&ctx, dst, src, n)` for device-to-device copy.
+| Category | API |
+|----------|-----|
+| Device | `SetDevice(id)`, `GetDevice()`, `GetDeviceCount()`, `DeviceSync()` |
+| Memory | `Malloc<T>(n)`, `Free(p)`, `Memset(p,v,bytes)`, `MallocHost<T>(n)`, `FreeHost(p)` |
+| Copy | `Memcpy(dst,src,bytes,kind)`, `MemcpyAsync(...,stream)` |
+| Kernel | `GU_KERNEL(fn)`, `Launch(k, grid, block, args...)` |
+| Stream | `stream s; s.sync();` |
+| Event | `event e; e.record(s); e.sync(); ElapsedTime(e1,e2)` |
+| Error | `GetLastError()`, `GetErrorString(e)`, `GU_CHECK(expr)` |
+| Dim3 | `dim3(x,y,z)` for 3D grid/block in `Launch(k, dim3 grid, dim3 block, ...)` |
 
-## Atomics
+**MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H`
+**Launch overloads:** `Launch(k, g, b, args)`, `Launch(k, g, b, smem, args)`, `Launch(k, g, b, stream, args)`, `Launch(k, g, b, smem, stream, args)`
 
-For portable float accumulation, use fixed-point:
+## Build
 
-```cpp
-// acc is gu_u64* buffer
-gu_atomic_add_fixed_q32_32(acc + i, value);
-
-// convert back: gu_fixed_q32_32_to_real(acc[i])
+```bash
+cc -O2 -std=c99 -o gpuni-render tools/render.c   # build render tool
+./gpuni-render saxpy.gu.cu -o saxpy.gu.h        # OpenCL needs kernel source string
+nvcc  -I. host.cpp saxpy.gu.cu
+hipcc -I. host.cpp saxpy.gu.cu
+c++   -I. host.cpp -lOpenCL                # uses saxpy.gu.h for JIT
 ```
-
-Also available: `atomicAdd/atomicCAS/...` (int/uint only), `gu_atomic_add_f32` (float).
-
-## Dynamic Shared Memory
-
-```cpp
-GU_EXTERN_C __global__ void gu_reduce(/* ... */, GU_LOCAL float* gu_smem) {
-  GU_BIND_DYNAMIC_SMEM(gu_smem);
-  GU_LOCAL float* s = gu_smem;
-  // ...
-}
-```
-
-Host: pass `smem_bytes` to `gu_run()`, `NULL` for `gu_smem` argument.

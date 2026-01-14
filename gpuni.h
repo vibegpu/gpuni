@@ -53,29 +53,26 @@
 #endif
 
 #if defined(GU_BACKEND_OPENCL)
-typedef int gu_i32;
-typedef uint gu_u32;
-typedef long gu_i64;
-typedef ulong gu_u64;
+/* OpenCL C: int/uint/long/ulong built-in */
+typedef long int64;
+typedef ulong uint64;
 #else
-typedef int gu_i32;
-typedef unsigned int gu_u32;
-typedef long long gu_i64;
-typedef unsigned long long gu_u64;
+/* CUDA/HIP/Host: short aliases */
+typedef unsigned int uint;
+typedef long long int64;
+typedef unsigned long long uint64;
 #endif
 
-#if defined(GU_USE_DOUBLE) && GU_HAS_FP64
-typedef double gu_real;
-#  define GU_REAL_IS_DOUBLE 1
-#  define GU_REAL_IS_FLOAT 0
-#else
-typedef float gu_real;
-#  define GU_REAL_IS_DOUBLE 0
-#  define GU_REAL_IS_FLOAT 1
-#endif
+/* Internal type aliases (for gpuni.h implementation) */
+typedef int gu_i32;
+typedef uint gu_u32;
+typedef int64 gu_i64;
+typedef uint64 gu_u64;
 
 #define GU_FIXED_Q32_32_SCALE_F 4294967296.0f
 #define GU_FIXED_Q32_32_INV_SCALE_F 2.3283064365386963e-10f /* 2^-32 */
+#define GU_FIXED_Q32_32_SCALE_D 4294967296.0
+#define GU_FIXED_Q32_32_INV_SCALE_D 2.3283064365386963e-10 /* 2^-32 */
 
 #if defined(GU_BACKEND_HIP)
 #  include <hip/hip_runtime.h>
@@ -284,6 +281,11 @@ static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
 #    endif
   const uint lower = (uint)val;
   uint upper = (uint)(val >> 32);
+  /* Fast-path: when the low-word increment is zero, there is no carry. */
+  if (lower == 0u) {
+    if (upper != 0u) atomic_add(&word[1 - low], upper);
+    return;
+  }
   const uint old_lower = atomic_add(&word[low], lower);
   const uint sum = old_lower + lower;
   upper += (sum < old_lower) ? 1u : 0u;
@@ -303,6 +305,20 @@ static GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
   gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
 }
 
+#if GU_HAS_FP64
+static GU_INLINE gu_i64 gu_real_to_fixed_q32_32_f64(double x) {
+  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_D);
+}
+
+static GU_INLINE double gu_fixed_q32_32_to_real_f64(gu_i64 x) {
+  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
+}
+
+static GU_INLINE void gu_atomic_add_fixed_q32_32_f64(GU_GLOBAL gu_u64* p, double x) {
+  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32_f64(x));
+}
+#endif
+
 /* Float atomic add (OpenCL 1.2 has no atomic_add(float); emulate via CAS on u32 bits).
    Correctness-first; prefer fixed-point(Q32.32) for high-throughput accumulation. */
 static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
@@ -315,6 +331,52 @@ static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
     if (old == assumed) return as_float(assumed);
   }
 }
+
+/* Unified atomics for the gpuni dialect.
+   Notes:
+   - OpenCL C 1.2 cannot overload by type for user-defined functions; keep names explicit.
+   - `guAtomicAdd` matches CUDA int32 `atomicAdd`.
+   - Float min/max/add use CAS on u32 bits for OpenCL portability.
+   - U64 add is addition-only (no old value); see gu_atomic_add_u64 notes above. */
+static GU_INLINE gu_i32 guAtomicAdd(GU_GLOBAL gu_i32* p, gu_i32 val) { return atomicAdd(p, val); }
+static GU_INLINE gu_u32 guAtomicAddU32(GU_GLOBAL gu_u32* p, gu_u32 val) { return atomicAdd(p, val); }
+static GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
+static GU_INLINE void guAtomicAddU64(GU_GLOBAL gu_u64* p, gu_u64 val) { gu_atomic_add_u64(p, val); }
+
+static GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
+  gu_u32 old = atomicAdd((volatile GU_GLOBAL gu_u32*)u, (gu_u32)0);
+  for (;;) {
+    gu_u32 assumed = old;
+    float assumed_f = as_float(assumed);
+    float desired_f = fminf(assumed_f, x);
+    gu_u32 desired = as_uint(desired_f);
+    old = atomicCAS((volatile GU_GLOBAL gu_u32*)u, assumed, desired);
+    if (old == assumed) return assumed_f;
+  }
+}
+
+static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
+  gu_u32 old = atomicAdd((volatile GU_GLOBAL gu_u32*)u, (gu_u32)0);
+  for (;;) {
+    gu_u32 assumed = old;
+    float assumed_f = as_float(assumed);
+    float desired_f = fmaxf(assumed_f, x);
+    gu_u32 desired = as_uint(desired_f);
+    old = atomicCAS((volatile GU_GLOBAL gu_u32*)u, assumed, desired);
+    if (old == assumed) return assumed_f;
+  }
+}
+
+/* Short aliases for float atomics */
+#define guAtomicAddF guAtomicAddF32
+#define guAtomicMinF guAtomicMinF32
+#define guAtomicMaxF guAtomicMaxF32
+
+/* Back-compat typed helpers (discouraged; prefer guAtomic*). */
+static GU_INLINE float atomicAdd_f32(GU_GLOBAL float* p, float x) { return guAtomicAddF32(p, x); }
+static GU_INLINE void atomicAdd_u64(GU_GLOBAL gu_u64* p, gu_u64 val) { guAtomicAddU64(p, val); }
 
 /* OpenCL is C, no extern "C" needed */
 #  define GU_EXTERN_C
@@ -372,6 +434,66 @@ static __device__ GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x)
   return atomicAdd((float*)p, x);
 }
 
+static __device__ GU_INLINE gu_u32 gu_bitcast_u32_from_f32(float x) {
+  union {
+    float f;
+    gu_u32 u;
+  } v;
+  v.f = x;
+  return v.u;
+}
+
+static __device__ GU_INLINE float gu_bitcast_f32_from_u32(gu_u32 x) {
+  union {
+    float f;
+    gu_u32 u;
+  } v;
+  v.u = x;
+  return v.f;
+}
+
+static __device__ GU_INLINE gu_i32 guAtomicAdd(GU_GLOBAL gu_i32* p, gu_i32 val) { return atomicAdd((int*)p, (int)val); }
+static __device__ GU_INLINE gu_u32 guAtomicAddU32(GU_GLOBAL gu_u32* p, gu_u32 val) {
+  return atomicAdd((unsigned int*)p, (unsigned int)val);
+}
+static __device__ GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
+static __device__ GU_INLINE void guAtomicAddU64(GU_GLOBAL gu_u64* p, gu_u64 val) { gu_atomic_add_u64(p, val); }
+
+static __device__ GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
+  gu_u32* u = (gu_u32*)p;
+  gu_u32 old = atomicCAS((unsigned int*)u, 0u, 0u);
+  for (;;) {
+    gu_u32 assumed = old;
+    float assumed_f = gu_bitcast_f32_from_u32(assumed);
+    float desired_f = fminf(assumed_f, x);
+    gu_u32 desired = gu_bitcast_u32_from_f32(desired_f);
+    old = atomicCAS((unsigned int*)u, (unsigned int)assumed, (unsigned int)desired);
+    if (old == assumed) return assumed_f;
+  }
+}
+
+static __device__ GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
+  gu_u32* u = (gu_u32*)p;
+  gu_u32 old = atomicCAS((unsigned int*)u, 0u, 0u);
+  for (;;) {
+    gu_u32 assumed = old;
+    float assumed_f = gu_bitcast_f32_from_u32(assumed);
+    float desired_f = fmaxf(assumed_f, x);
+    gu_u32 desired = gu_bitcast_u32_from_f32(desired_f);
+    old = atomicCAS((unsigned int*)u, (unsigned int)assumed, (unsigned int)desired);
+    if (old == assumed) return assumed_f;
+  }
+}
+
+/* Short aliases for float atomics */
+#define guAtomicAddF guAtomicAddF32
+#define guAtomicMinF guAtomicMinF32
+#define guAtomicMaxF guAtomicMaxF32
+
+/* Back-compat typed helpers (discouraged; prefer guAtomic*). */
+static __device__ GU_INLINE float atomicAdd_f32(GU_GLOBAL float* p, float x) { return guAtomicAddF32(p, x); }
+static __device__ GU_INLINE void atomicAdd_u64(GU_GLOBAL gu_u64* p, gu_u64 val) { guAtomicAddU64(p, val); }
+
 static __device__ GU_INLINE gu_i64 gu_real_to_fixed_q32_32(float x) {
   return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_F);
 }
@@ -383,6 +505,20 @@ static __device__ GU_INLINE float gu_fixed_q32_32_to_real(gu_i64 x) {
 static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p, float x) {
   gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32(x));
 }
+
+#if GU_HAS_FP64
+static __device__ GU_INLINE gu_i64 gu_real_to_fixed_q32_32_f64(double x) {
+  return (gu_i64)(x * GU_FIXED_Q32_32_SCALE_D);
+}
+
+static __device__ GU_INLINE double gu_fixed_q32_32_to_real_f64(gu_i64 x) {
+  return (double)x * GU_FIXED_Q32_32_INV_SCALE_D;
+}
+
+static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32_f64(GU_GLOBAL gu_u64* p, double x) {
+  gu_atomic_add_u64(p, (gu_u64)gu_real_to_fixed_q32_32_f64(x));
+}
+#endif
 #  endif
 
 /* Prevent C++ name mangling for kernel symbols */
@@ -394,12 +530,16 @@ static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p,
  * Host API (enabled by GUH_CUDA / GUH_HIP / GUH_OPENCL)
  * ============================================================ */
 
-/* Auto-detect backend if not explicitly set */
-#if !defined(GUH_CUDA) && !defined(GUH_HIP) && !defined(GUH_OPENCL)
+/* Auto-detect backend if not explicitly set.
+ * Priority: CUDA (nvcc) > HIP (hipcc) > OpenCL (fallback for plain C/C++).
+ * Skip auto-detection when compiling OpenCL kernels (GU_BACKEND_OPENCL is set). */
+#if !defined(GUH_CUDA) && !defined(GUH_HIP) && !defined(GUH_OPENCL) && !defined(GU_BACKEND_OPENCL)
 #  if defined(__CUDACC__) || defined(CUDA_VERSION)
 #    define GUH_CUDA 1
 #  elif defined(__HIPCC__)
 #    define GUH_HIP 1
+#  else
+#    define GUH_OPENCL 1
 #  endif
 #endif
 
@@ -432,248 +572,495 @@ static __device__ GU_INLINE void gu_atomic_add_fixed_q32_32(GU_GLOBAL gu_u64* p,
 #  define GUH_OPENCL_BUILD_OPTIONS "-cl-std=CL1.2"
 #endif
 
-/* ---- Context ---- */
-typedef struct gu_ctx {
-#if defined(GUH_CUDA)
-    int device;
-    cudaStream_t stream;
-#elif defined(GUH_HIP)
-    int device;
-    hipStream_t stream;
-#elif defined(GUH_OPENCL)
-    cl_context context;
-    cl_command_queue queue;
-    cl_device_id device;
-#else
-    int dummy;
-#endif
-} gu_ctx;
+#endif /* GUH_CUDA || GUH_HIP || GUH_OPENCL */
 
-static inline int gu_ctx_init(gu_ctx* c, int dev) {
-#if defined(GUH_CUDA)
-    c->device = dev;
-    if (cudaSetDevice(dev) != cudaSuccess) return -1;
-    return (int)cudaStreamCreate(&c->stream);
-#elif defined(GUH_HIP)
-    c->device = dev;
-    if (hipSetDevice(dev) != hipSuccess) return -1;
-    return (int)hipStreamCreate(&c->stream);
+/* ============================================================
+ * C++ Level 1 API (namespace gu)
+ * cudaXxx -> gu::Xxx (CUDA-style, cross-platform)
+ * ============================================================ */
+#if defined(__cplusplus) && (defined(GUH_CUDA) || defined(GUH_HIP) || defined(GUH_OPENCL))
+
+#include <cstring>
+#if defined(GUH_OPENCL)
+#include <unordered_map>
+#include <vector>
+#include <utility>
+#endif
+
+/* Unify CUDA/HIP API names */
+#if defined(GUH_CUDA) || defined(GUH_HIP)
+#  define GUH_NATIVE 1
+#  if defined(GUH_CUDA)
+#    define GU_API(name) cuda##name
+#    define GU_API_T(name) cuda##name##_t
+#    define GU_MCPY(k) cudaMemcpy##k
+#  else
+#    define GU_API(name) hip##name
+#    define GU_API_T(name) hip##name##_t
+#    define GU_MCPY(k) hipMemcpy##k
+#  endif
+#endif
+
+namespace gu {
+
+using error = int;
+constexpr error success = 0;
+
+namespace detail {
+#if defined(GUH_NATIVE)
+  static error g_last_error = 0;
 #elif defined(GUH_OPENCL)
-    (void)dev;
-    c->context = NULL;
-    c->queue = NULL;
-    c->device = NULL;
-    cl_platform_id plat; cl_int e;
-    e = clGetPlatformIDs(1, &plat, NULL);
-    if (e != CL_SUCCESS) return (int)e;
-    e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_GPU, 1, &c->device, NULL);
-    if (e != CL_SUCCESS)
-        e = clGetDeviceIDs(plat, CL_DEVICE_TYPE_ALL, 1, &c->device, NULL);
-    if (e != CL_SUCCESS) return (int)e;
-    c->context = clCreateContext(NULL, 1, &c->device, NULL, NULL, &e);
-    if (e != CL_SUCCESS) return (int)e;
-    c->queue = clCreateCommandQueue(c->context, c->device, 0, &e);
-    return (int)e;
+  static error g_last_error = CL_SUCCESS;
+  static cl_context g_context = nullptr;
+  static cl_command_queue g_queue = nullptr;
+  static cl_device_id g_device = nullptr;
+  static int g_current_device = -1;
+  static std::vector<std::pair<cl_platform_id, cl_device_id>> g_all_devices;
+  static std::unordered_map<void*, cl_mem> g_pinned_map;
+
+  static inline void init_device_list() {
+    if (!g_all_devices.empty()) return;
+    cl_uint np = 0;
+    clGetPlatformIDs(0, nullptr, &np);
+    if (np == 0) return;
+    std::vector<cl_platform_id> plats(np);
+    clGetPlatformIDs(np, plats.data(), nullptr);
+    for (auto& p : plats) {
+      cl_uint nd = 0;
+      if (clGetDeviceIDs(p, CL_DEVICE_TYPE_GPU, 0, nullptr, &nd) == CL_SUCCESS && nd > 0) {
+        std::vector<cl_device_id> devs(nd);
+        clGetDeviceIDs(p, CL_DEVICE_TYPE_GPU, nd, devs.data(), nullptr);
+        for (auto& d : devs) g_all_devices.push_back({p, d});
+      }
+    }
+    if (g_all_devices.empty()) {
+      for (auto& p : plats) {
+        cl_uint nd = 0;
+        if (clGetDeviceIDs(p, CL_DEVICE_TYPE_ALL, 0, nullptr, &nd) == CL_SUCCESS && nd > 0) {
+          std::vector<cl_device_id> devs(nd);
+          clGetDeviceIDs(p, CL_DEVICE_TYPE_ALL, nd, devs.data(), nullptr);
+          for (auto& d : devs) g_all_devices.push_back({p, d});
+        }
+      }
+    }
+  }
+#endif
+} // namespace detail
+
+static inline error GetLastError() {
+#if defined(GUH_NATIVE)
+  error e = (error)GU_API(GetLastError)();
+  if (e != 0) detail::g_last_error = e;
+#endif
+  return detail::g_last_error;
+}
+
+static inline const char* GetErrorString(error e) {
+#if defined(GUH_NATIVE)
+  return GU_API(GetErrorString)((GU_API_T(Error))e);
+#elif defined(GUH_OPENCL)
+  switch (e) {
+    case CL_SUCCESS: return "CL_SUCCESS";
+    case CL_INVALID_DEVICE: return "CL_INVALID_DEVICE";
+    case CL_OUT_OF_HOST_MEMORY: return "CL_OUT_OF_HOST_MEMORY";
+    default: return "CL_UNKNOWN_ERROR";
+  }
 #else
-    (void)dev; c->dummy = 0; return 0;
+  (void)e; return "Unknown";
 #endif
 }
 
-static inline void gu_ctx_destroy(gu_ctx* c) {
-#if defined(GUH_CUDA)
-    cudaStreamDestroy(c->stream);
-#elif defined(GUH_HIP)
-    (void)hipStreamDestroy(c->stream);
+#define GU_CHECK(expr) do { \
+  gu::error _e = (expr); \
+  if (_e != gu::success) fprintf(stderr, "gpuni error %d: %s at %s:%d\n", _e, gu::GetErrorString(_e), __FILE__, __LINE__); \
+} while(0)
+
+/* ---- Device ---- */
+static inline int GetDeviceCount() {
+#if defined(GUH_NATIVE)
+  int n = 0; detail::g_last_error = (error)GU_API(GetDeviceCount)(&n); return n;
 #elif defined(GUH_OPENCL)
-    if (c->queue) clReleaseCommandQueue(c->queue);
-    if (c->context) clReleaseContext(c->context);
+  detail::init_device_list();
+  return (int)detail::g_all_devices.size();
 #else
-    (void)c;
+  return 1;
 #endif
 }
 
-static inline void gu_sync(gu_ctx* c) {
-#if defined(GUH_CUDA)
-    cudaStreamSynchronize(c->stream);
-#elif defined(GUH_HIP)
-    (void)hipStreamSynchronize(c->stream);
+static inline void SetDevice(int id) {
+#if defined(GUH_NATIVE)
+  detail::g_last_error = (error)GU_API(SetDevice)(id);
 #elif defined(GUH_OPENCL)
-    clFinish(c->queue);
+  detail::init_device_list();
+  if (id < 0 || id >= (int)detail::g_all_devices.size()) { detail::g_last_error = CL_INVALID_DEVICE; return; }
+  if (detail::g_current_device == id) return;
+  if (detail::g_queue) { clFinish(detail::g_queue); clReleaseCommandQueue(detail::g_queue); }
+  if (detail::g_context) clReleaseContext(detail::g_context);
+  cl_device_id dev = detail::g_all_devices[id].second;
+  cl_int e;
+  detail::g_device = dev;
+  detail::g_context = clCreateContext(nullptr, 1, &dev, nullptr, nullptr, &e);
+  if (e != CL_SUCCESS) { detail::g_last_error = e; return; }
+  detail::g_queue = clCreateCommandQueue(detail::g_context, dev, CL_QUEUE_PROFILING_ENABLE, &e);
+  detail::g_last_error = e;
+  detail::g_current_device = id;
+#endif
+}
+
+static inline int GetDevice() {
+#if defined(GUH_NATIVE)
+  int id = 0; detail::g_last_error = (error)GU_API(GetDevice)(&id); return id;
+#elif defined(GUH_OPENCL)
+  return detail::g_current_device;
 #else
-    (void)c;
+  return 0;
+#endif
+}
+
+static inline void DeviceSync() {
+#if defined(GUH_NATIVE)
+  detail::g_last_error = (error)GU_API(DeviceSynchronize)();
+#elif defined(GUH_OPENCL)
+  if (detail::g_queue) detail::g_last_error = clFinish(detail::g_queue);
 #endif
 }
 
 /* ---- Memory ---- */
-static inline void* gu_malloc(gu_ctx* c, size_t n) {
-    void* p = NULL;
-#if defined(GUH_CUDA)
-    (void)c; cudaMalloc(&p, n);
-#elif defined(GUH_HIP)
-    (void)c; (void)hipMalloc(&p, n);
+template<typename T> static inline T* Malloc(size_t count) {
+  T* p = nullptr;
+#if defined(GUH_NATIVE)
+  detail::g_last_error = (error)GU_API(Malloc)(&p, count * sizeof(T));
 #elif defined(GUH_OPENCL)
-    p = (void*)clCreateBuffer(c->context, CL_MEM_READ_WRITE, n, NULL, NULL);
+  cl_int e;
+  p = (T*)clCreateBuffer(detail::g_context, CL_MEM_READ_WRITE, count * sizeof(T), nullptr, &e);
+  detail::g_last_error = e;
 #else
-    (void)c; p = malloc(n);
+  p = (T*)malloc(count * sizeof(T));
 #endif
-    return p;
+  return p;
 }
 
-static inline void gu_free(gu_ctx* c, void* p) {
-#if defined(GUH_CUDA)
-    (void)c; cudaFree(p);
-#elif defined(GUH_HIP)
-    (void)c; (void)hipFree(p);
+static inline void Free(void* p) {
+#if defined(GUH_NATIVE)
+  detail::g_last_error = (error)GU_API(Free)(p);
 #elif defined(GUH_OPENCL)
-    (void)c; if (p) clReleaseMemObject((cl_mem)p);
+  if (p) clReleaseMemObject((cl_mem)p);
 #else
-    (void)c; free(p);
+  free(p);
+#endif
+}
+
+static inline void Memset(void* p, int val, size_t bytes) {
+#if defined(GUH_NATIVE)
+  detail::g_last_error = (error)GU_API(Memset)(p, val, bytes);
+#elif defined(GUH_OPENCL)
+  cl_uchar pattern = (cl_uchar)val;
+  detail::g_last_error = clEnqueueFillBuffer(detail::g_queue, (cl_mem)p, &pattern, 1, 0, bytes, 0, nullptr, nullptr);
+#else
+  memset(p, val, bytes);
+#endif
+}
+
+template<typename T> static inline T* MallocHost(size_t count) {
+  T* p = nullptr;
+#if defined(GUH_CUDA)
+  detail::g_last_error = (error)cudaMallocHost(&p, count * sizeof(T));
+#elif defined(GUH_HIP)
+  detail::g_last_error = (error)hipHostMalloc(&p, count * sizeof(T));
+#elif defined(GUH_OPENCL)
+  size_t bytes = count * sizeof(T);
+  cl_int e;
+  cl_mem buf = clCreateBuffer(detail::g_context, CL_MEM_READ_WRITE | CL_MEM_ALLOC_HOST_PTR, bytes, nullptr, &e);
+  if (e != CL_SUCCESS) { detail::g_last_error = e; return nullptr; }
+  p = (T*)clEnqueueMapBuffer(detail::g_queue, buf, CL_TRUE, CL_MAP_READ | CL_MAP_WRITE, 0, bytes, 0, nullptr, nullptr, &e);
+  if (e != CL_SUCCESS) { clReleaseMemObject(buf); detail::g_last_error = e; return nullptr; }
+  detail::g_pinned_map[p] = buf;
+#else
+  p = (T*)malloc(count * sizeof(T));
+#endif
+  return p;
+}
+
+static inline void FreeHost(void* p) {
+#if defined(GUH_CUDA)
+  detail::g_last_error = (error)cudaFreeHost(p);
+#elif defined(GUH_HIP)
+  detail::g_last_error = (error)hipHostFree(p);
+#elif defined(GUH_OPENCL)
+  auto it = detail::g_pinned_map.find(p);
+  if (it != detail::g_pinned_map.end()) {
+    clEnqueueUnmapMemObject(detail::g_queue, it->second, p, 0, nullptr, nullptr);
+    clReleaseMemObject(it->second);
+    detail::g_pinned_map.erase(it);
+  }
+#else
+  free(p);
 #endif
 }
 
 /* ---- Memcpy ---- */
-static inline void gu_h2d(gu_ctx* c, void* d, const void* s, size_t n) {
-#if defined(GUH_CUDA)
-    cudaMemcpyAsync(d, s, n, cudaMemcpyHostToDevice, c->stream);
-#elif defined(GUH_HIP)
-    (void)hipMemcpyAsync(d, s, n, hipMemcpyHostToDevice, c->stream);
+enum MemcpyKind {
+  H2D = 1, D2H = 2, D2D = 3, H2H = 4,
+  MemcpyHostToDevice = 1, MemcpyDeviceToHost = 2,
+  MemcpyDeviceToDevice = 3, MemcpyHostToHost = 4
+};
+
+static inline void Memcpy(void* dst, const void* src, size_t bytes, MemcpyKind kind) {
+#if defined(GUH_NATIVE)
+  auto ck = (kind == H2D) ? GU_MCPY(HostToDevice) : (kind == D2H) ? GU_MCPY(DeviceToHost) :
+            (kind == D2D) ? GU_MCPY(DeviceToDevice) : GU_MCPY(HostToHost);
+  detail::g_last_error = (error)GU_API(Memcpy)(dst, src, bytes, ck);
 #elif defined(GUH_OPENCL)
-    clEnqueueWriteBuffer(c->queue, (cl_mem)d, CL_FALSE, 0, n, s, 0, NULL, NULL);
+  switch (kind) {
+    case H2D: detail::g_last_error = clEnqueueWriteBuffer(detail::g_queue, (cl_mem)dst, CL_TRUE, 0, bytes, src, 0, nullptr, nullptr); break;
+    case D2H: detail::g_last_error = clEnqueueReadBuffer(detail::g_queue, (cl_mem)src, CL_TRUE, 0, bytes, dst, 0, nullptr, nullptr); break;
+    case D2D: detail::g_last_error = clEnqueueCopyBuffer(detail::g_queue, (cl_mem)src, (cl_mem)dst, 0, 0, bytes, 0, nullptr, nullptr); clFinish(detail::g_queue); break;
+    case H2H: std::memcpy(dst, src, bytes); break;
+  }
 #else
-    (void)c; memcpy(d, s, n);
+  std::memcpy(dst, src, bytes);
 #endif
 }
 
-static inline void gu_d2h(gu_ctx* c, void* d, const void* s, size_t n) {
-#if defined(GUH_CUDA)
-    cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToHost, c->stream);
-#elif defined(GUH_HIP)
-    (void)hipMemcpyAsync(d, s, n, hipMemcpyDeviceToHost, c->stream);
+/* ---- Stream ---- */
+class stream {
+#if defined(GUH_NATIVE)
+  GU_API_T(Stream) s_ = nullptr;
 #elif defined(GUH_OPENCL)
-    clEnqueueReadBuffer(c->queue, (cl_mem)s, CL_FALSE, 0, n, d, 0, NULL, NULL);
-#else
-    (void)c; memcpy(d, s, n);
+  cl_command_queue q_ = nullptr;
 #endif
-}
-
-static inline void gu_d2d(gu_ctx* c, void* d, const void* s, size_t n) {
-#if defined(GUH_CUDA)
-    cudaMemcpyAsync(d, s, n, cudaMemcpyDeviceToDevice, c->stream);
-#elif defined(GUH_HIP)
-    (void)hipMemcpyAsync(d, s, n, hipMemcpyDeviceToDevice, c->stream);
+public:
+  stream() {
+#if defined(GUH_NATIVE)
+    detail::g_last_error = (error)GU_API(StreamCreate)(&s_);
 #elif defined(GUH_OPENCL)
-    clEnqueueCopyBuffer(c->queue, (cl_mem)s, (cl_mem)d, 0, 0, n, 0, NULL, NULL);
-#else
-    (void)c; memcpy(d, s, n);
-#endif
-}
-
-/* ---- Kernel ---- */
-typedef struct gu_kernel {
-    int nargs;
-#if defined(GUH_CUDA) || defined(GUH_HIP)
-    void* func;
-    void* args[GUH_MAX_ARGS];
-#elif defined(GUH_OPENCL)
-    cl_kernel kernel;
-    cl_program program;
-#else
-    void* func;
-#endif
-} gu_kernel;
-
-static inline int gu_kernel_create(gu_ctx* c, gu_kernel* k, void* func, const char* src, const char* name) {
-    k->nargs = 0;
-#if defined(GUH_CUDA) || defined(GUH_HIP)
-    (void)c; (void)src; (void)name;
-    k->func = func;
-    return 0;
-#elif defined(GUH_OPENCL)
-    (void)func;
     cl_int e;
-    k->kernel = NULL;
-    k->program = NULL;
-    k->program = clCreateProgramWithSource(c->context, 1, &src, NULL, &e);
-    if (e != CL_SUCCESS) return (int)e;
-    e = clBuildProgram(k->program, 1, &c->device, GUH_OPENCL_BUILD_OPTIONS, NULL, NULL);
-    if (e != CL_SUCCESS) {
-        size_t len = 0;
-        clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, 0, NULL, &len);
-        if (len > 1) {
-            char* log = (char*)malloc(len);
-            if (log) {
-                clGetProgramBuildInfo(k->program, c->device, CL_PROGRAM_BUILD_LOG, len, log, NULL);
-                fprintf(stderr, "OpenCL build error:\n%s\n", log);
-                free(log);
-            }
-        }
-        clReleaseProgram(k->program);
-        k->program = NULL;
-        return (int)e;
-    }
-    k->kernel = clCreateKernel(k->program, name, &e);
-    return (int)e;
-#else
-    (void)c; (void)func; (void)src; (void)name;
-    return 0;
+    q_ = clCreateCommandQueue(detail::g_context, detail::g_device, CL_QUEUE_PROFILING_ENABLE, &e);
+    detail::g_last_error = e;
 #endif
-}
-
-static inline void gu_kernel_destroy(gu_kernel* k) {
-#if defined(GUH_OPENCL)
-    if (k->kernel) clReleaseKernel(k->kernel);
-    if (k->program) clReleaseProgram(k->program);
-#else
-    (void)k;
-#endif
-}
-
-static inline void gu_arg_impl(gu_kernel* k, const void* ptr, size_t sz) {
-#if defined(GUH_CUDA) || defined(GUH_HIP)
-    if (k->nargs < GUH_MAX_ARGS) k->args[k->nargs++] = (void*)ptr;
-    (void)sz;
+  }
+  ~stream() {
+#if defined(GUH_NATIVE)
+    if (s_) detail::g_last_error = (error)GU_API(StreamDestroy)(s_);
 #elif defined(GUH_OPENCL)
-    if (k->nargs < GUH_MAX_ARGS) clSetKernelArg(k->kernel, (cl_uint)k->nargs++, sz, ptr);
+    if (q_) clReleaseCommandQueue(q_);
+#endif
+  }
+  stream(const stream&) = delete;
+  stream& operator=(const stream&) = delete;
+  void sync() {
+#if defined(GUH_NATIVE)
+    detail::g_last_error = (error)GU_API(StreamSynchronize)(s_);
+#elif defined(GUH_OPENCL)
+    if (q_) detail::g_last_error = clFinish(q_);
+#endif
+  }
+#if defined(GUH_NATIVE)
+  GU_API_T(Stream) native() const { return s_; }
+#elif defined(GUH_OPENCL)
+  cl_command_queue native() const { return q_; }
+#endif
+};
+
+static inline void MemcpyAsync(void* dst, const void* src, size_t bytes, MemcpyKind kind, stream& s) {
+#if defined(GUH_NATIVE)
+  auto ck = (kind == H2D) ? GU_MCPY(HostToDevice) : (kind == D2H) ? GU_MCPY(DeviceToHost) :
+            (kind == D2D) ? GU_MCPY(DeviceToDevice) : GU_MCPY(HostToHost);
+  detail::g_last_error = (error)GU_API(MemcpyAsync)(dst, src, bytes, ck, s.native());
+#elif defined(GUH_OPENCL)
+  switch (kind) {
+    case H2D: detail::g_last_error = clEnqueueWriteBuffer(s.native(), (cl_mem)dst, CL_FALSE, 0, bytes, src, 0, nullptr, nullptr); break;
+    case D2H: detail::g_last_error = clEnqueueReadBuffer(s.native(), (cl_mem)src, CL_FALSE, 0, bytes, dst, 0, nullptr, nullptr); break;
+    case D2D: detail::g_last_error = clEnqueueCopyBuffer(s.native(), (cl_mem)src, (cl_mem)dst, 0, 0, bytes, 0, nullptr, nullptr); break;
+    case H2H: std::memcpy(dst, src, bytes); break;
+  }
 #else
-    (void)k; (void)ptr; (void)sz;
+  (void)s; std::memcpy(dst, src, bytes);
 #endif
 }
 
-#define gu_arg(k, v) gu_arg_impl(k, &(v), sizeof(v))
-
-static inline void gu_args_reset(gu_kernel* k) { k->nargs = 0; }
-
-static inline void gu_run(gu_ctx* c, gu_kernel* k, int grid, int block, int smem) {
-#if defined(GUH_CUDA)
-    cudaLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
-#elif defined(GUH_HIP)
-    (void)hipLaunchKernel(k->func, dim3(grid), dim3(block), k->args, (size_t)smem, c->stream);
+/* ---- Event ---- */
+class event {
+#if defined(GUH_NATIVE)
+  GU_API_T(Event) e_ = nullptr;
 #elif defined(GUH_OPENCL)
-    if (smem > 0) clSetKernelArg(k->kernel, (cl_uint)k->nargs, (size_t)smem, NULL);
-    size_t global = (size_t)grid * (size_t)block;
-    size_t local = (size_t)block;
-    clEnqueueNDRangeKernel(c->queue, k->kernel, 1, NULL, &global, &local, 0, NULL, NULL);
-#else
-    (void)c; (void)k; (void)grid; (void)block; (void)smem;
+  cl_event e_ = nullptr;
 #endif
-    gu_args_reset(k);
+public:
+  event() {
+#if defined(GUH_NATIVE)
+    detail::g_last_error = (error)GU_API(EventCreate)(&e_);
+#endif
+  }
+  ~event() {
+#if defined(GUH_NATIVE)
+    if (e_) detail::g_last_error = (error)GU_API(EventDestroy)(e_);
+#elif defined(GUH_OPENCL)
+    if (e_) clReleaseEvent(e_);
+#endif
+  }
+  event(const event&) = delete;
+  event& operator=(const event&) = delete;
+  void record(stream& s) {
+#if defined(GUH_NATIVE)
+    detail::g_last_error = (error)GU_API(EventRecord)(e_, s.native());
+#elif defined(GUH_OPENCL)
+    if (e_) clReleaseEvent(e_);
+    detail::g_last_error = clEnqueueMarkerWithWaitList(s.native(), 0, nullptr, &e_);
+#endif
+  }
+  void sync() {
+#if defined(GUH_NATIVE)
+    detail::g_last_error = (error)GU_API(EventSynchronize)(e_);
+#elif defined(GUH_OPENCL)
+    if (e_) clWaitForEvents(1, &e_);
+#endif
+  }
+#if defined(GUH_NATIVE)
+  GU_API_T(Event) native() const { return e_; }
+#elif defined(GUH_OPENCL)
+  cl_event native() const { return e_; }
+#endif
+};
+
+static inline float ElapsedTime(event& start, event& end) {
+#if defined(GUH_NATIVE)
+  float ms = 0; detail::g_last_error = (error)GU_API(EventElapsedTime)(&ms, start.native(), end.native()); return ms;
+#elif defined(GUH_OPENCL)
+  start.sync(); end.sync();
+  cl_ulong t0 = 0, t1 = 0;
+  clGetEventProfilingInfo(start.native(), CL_PROFILING_COMMAND_END, sizeof(t0), &t0, nullptr);
+  clGetEventProfilingInfo(end.native(), CL_PROFILING_COMMAND_END, sizeof(t1), &t1, nullptr);
+  return (float)(t1 - t0) / 1e6f;
+#else
+  (void)start; (void)end; return 0.0f;
+#endif
 }
 
-/* ---- Unified kernel creation macro ----
- * Usage: GU_KERNEL(&ctx, &k, gu_saxpy);
- * Include the generated .gu.h header before using this macro.
- */
-#if defined(GUH_CUDA) || defined(GUH_HIP)
-#define GU_KERNEL(ctx, k, name) \
-    gu_kernel_create(ctx, k, (void*)(name), NULL, NULL)
-#elif defined(GUH_OPENCL)
-#define GU_KERNEL(ctx, k, name) \
-    gu_kernel_create(ctx, k, NULL, name##_gu_source, #name)
-#else
-#define GU_KERNEL(ctx, k, name) \
-    gu_kernel_create(ctx, k, NULL, NULL, NULL)
+/* ---- dim3 ---- */
+#if !defined(GUH_NATIVE)
+struct dim3 {
+  unsigned x, y, z;
+  dim3(unsigned x_ = 1, unsigned y_ = 1, unsigned z_ = 1) : x(x_), y(y_), z(z_) {}
+};
 #endif
 
-#endif /* GUH_CUDA || GUH_HIP || GUH_OPENCL */
+/* ---- Kernel & Launch ---- */
+namespace detail {
+  struct kernel_ref {
+#if defined(GUH_NATIVE)
+    void* func = nullptr;
+#elif defined(GUH_OPENCL)
+    cl_kernel k = nullptr;
+    cl_program p = nullptr;
+#endif
+  };
+
+#if defined(GUH_NATIVE)
+  static void* g_args[GUH_MAX_ARGS];
+  template<typename T>
+  static inline void set_arg(kernel_ref&, int& idx, const T& v) {
+    static thread_local T storage[GUH_MAX_ARGS];
+    storage[idx] = v;
+    g_args[idx++] = &storage[idx - 1];
+  }
+#elif defined(GUH_OPENCL)
+  template<typename T>
+  static inline void set_arg(kernel_ref& kr, int& idx, const T& v) {
+    clSetKernelArg(kr.k, (cl_uint)idx++, sizeof(T), &v);
+  }
+#endif
+
+  template<typename... Args>
+  static inline void set_args(kernel_ref& kr, int& idx, const Args&... args) {
+    int dummy[] = {0, (set_arg(kr, idx, args), 0)...};
+    (void)dummy;
+  }
+} // namespace detail
+
+#if defined(GUH_NATIVE)
+#define GU_KERNEL(fn) (fn)
+#elif defined(GUH_OPENCL)
+#define GU_KERNEL(fn) ([]() { \
+  gu::detail::kernel_ref kr; cl_int e; \
+  const char* src = fn##_gu_source; \
+  kr.p = clCreateProgramWithSource(gu::detail::g_context, 1, &src, nullptr, &e); \
+  if (e == CL_SUCCESS) { \
+    e = clBuildProgram(kr.p, 1, &gu::detail::g_device, "-cl-std=CL1.2", nullptr, nullptr); \
+    if (e == CL_SUCCESS) kr.k = clCreateKernel(kr.p, #fn, &e); \
+  } \
+  gu::detail::g_last_error = e; return kr; \
+}())
+#endif
+
+#if defined(GUH_NATIVE)
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, int grid, int block, const Args&... args) {
+  kernel<<<grid, block>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, dim3 grid, dim3 block, const Args&... args) {
+  kernel<<<grid, block>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, int grid, int block, size_t smem, const Args&... args) {
+  kernel<<<grid, block, smem>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, int grid, int block, stream& s, const Args&... args) {
+  kernel<<<grid, block, 0, s.native()>>>(args...);
+}
+
+template<typename Kernel, typename... Args>
+static inline void Launch(Kernel kernel, int grid, int block, size_t smem, stream& s, const Args&... args) {
+  kernel<<<grid, block, smem, s.native()>>>(args...);
+}
+#elif defined(GUH_OPENCL)
+/* Launch overloads */
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, int grid, int block, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  size_t global = (size_t)grid * (size_t)block, local = (size_t)block;
+  clEnqueueNDRangeKernel(detail::g_queue, kr.k, 1, nullptr, &global, &local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, dim3 grid, dim3 block, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  size_t global[3] = {grid.x * block.x, grid.y * block.y, grid.z * block.z};
+  size_t local[3] = {block.x, block.y, block.z};
+  clEnqueueNDRangeKernel(detail::g_queue, kr.k, 3, nullptr, global, local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, int grid, int block, size_t smem, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  if (smem > 0) clSetKernelArg(kr.k, (cl_uint)idx, smem, nullptr);
+  size_t global = (size_t)grid * (size_t)block, local = (size_t)block;
+  clEnqueueNDRangeKernel(detail::g_queue, kr.k, 1, nullptr, &global, &local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, int grid, int block, stream& s, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  size_t global = (size_t)grid * (size_t)block, local = (size_t)block;
+  clEnqueueNDRangeKernel(s.native(), kr.k, 1, nullptr, &global, &local, 0, nullptr, nullptr);
+}
+
+template<typename... Args>
+static inline void Launch(detail::kernel_ref kr, int grid, int block, size_t smem, stream& s, const Args&... args) {
+  int idx = 0; detail::set_args(kr, idx, args...);
+  if (smem > 0) clSetKernelArg(kr.k, (cl_uint)idx, smem, nullptr);
+  size_t global = (size_t)grid * (size_t)block, local = (size_t)block;
+  clEnqueueNDRangeKernel(s.native(), kr.k, 1, nullptr, &global, &local, 0, nullptr, nullptr);
+}
+#endif
+
+} // namespace gu
+
+#endif /* __cplusplus && (GUH_CUDA || GUH_HIP || GUH_OPENCL) */
 
 #endif

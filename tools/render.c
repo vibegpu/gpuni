@@ -1,3 +1,7 @@
+#if !defined(_WIN32)
+#  define _POSIX_C_SOURCE 200809L
+#endif
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,34 +232,88 @@ static void gu_render_file(FILE *out,
   if (fclose(f) != 0) gu_die_errno("fclose");
 }
 
-/* Extract kernel names from rendered source (finds "__global__ void gu_<name>(") */
-static void gu_find_kernel_names(const char *src, gu_str_list *names) {
+/* Extract kernel signatures from rendered source (finds "__global__ void gu_<name>(...)")
+   Returns list of full signatures like "__global__ void gu_saxpy(int n, float* y, ...)" */
+static void gu_find_kernel_signatures(const char *src, gu_str_list *names, gu_str_list *sigs) {
   const char *p = src;
   /* Match kernel entry points: __global__ void gu_<name>( */
   while ((p = strstr(p, "__global__ void gu_")) != NULL) {
-    const char *start = p + 16;  /* skip "__global__ void " */
-    const char *end = start;
-    while (*end && ((*end >= 'a' && *end <= 'z') ||
-                    (*end >= 'A' && *end <= 'Z') ||
-                    (*end >= '0' && *end <= '9') ||
-                    *end == '_')) ++end;
-    if (*end == '(' && end > start) {
-      size_t n = (size_t)(end - start);
-      char *name = (char *)gu_xmalloc(n + 1);
-      memcpy(name, start, n);
-      name[n] = '\0';
-      if (!gu_str_list_contains(names, name)) {
-        gu_str_list_push(names, name);
-      } else {
-        free(name);
-      }
+    const char *sig_start = p;
+    const char *name_start = p + 16;  /* skip "__global__ void " */
+    const char *name_end = name_start;
+    int paren_depth;
+    const char *sig_end;
+
+    while (*name_end && ((*name_end >= 'a' && *name_end <= 'z') ||
+                    (*name_end >= 'A' && *name_end <= 'Z') ||
+                    (*name_end >= '0' && *name_end <= '9') ||
+                    *name_end == '_')) ++name_end;
+    if (*name_end != '(' || name_end == name_start) {
+      p = name_end;
+      continue;
     }
-    p = end;
+
+    /* Extract name */
+    {
+      size_t n = (size_t)(name_end - name_start);
+      char *name = (char *)gu_xmalloc(n + 1);
+      memcpy(name, name_start, n);
+      name[n] = '\0';
+      if (gu_str_list_contains(names, name)) {
+        free(name);
+        p = name_end;
+        continue;
+      }
+      gu_str_list_push(names, name);
+    }
+
+    /* Find matching closing paren */
+    paren_depth = 1;
+    sig_end = name_end + 1;
+    while (*sig_end && paren_depth > 0) {
+      if (*sig_end == '(') paren_depth++;
+      else if (*sig_end == ')') paren_depth--;
+      sig_end++;
+    }
+
+    /* Extract full signature */
+    {
+      size_t n = (size_t)(sig_end - sig_start);
+      char *sig = (char *)gu_xmalloc(n + 1);
+      memcpy(sig, sig_start, n);
+      sig[n] = '\0';
+      gu_str_list_push(sigs, sig);
+    }
+
+    p = sig_end;
   }
 }
 
-/* Write C header with source string */
-static void gu_write_header(const char *header_path, const char *src, const gu_str_list *kernel_names) {
+/* Simplify signature for extern declaration (remove address space qualifiers) */
+static char *gu_simplify_sig_for_extern(const char *sig) {
+  /* Remove GU_GLOBAL/GU_LOCAL/GU_CONSTANT/__global/__local/__constant from signature */
+  size_t len = strlen(sig);
+  char *out = (char *)gu_xmalloc(len + 1);
+  const char *p = sig;
+  char *q = out;
+
+  while (*p) {
+    /* Skip address space qualifiers */
+    if (strncmp(p, "GU_GLOBAL ", 10) == 0) { p += 10; continue; }
+    if (strncmp(p, "GU_LOCAL ", 9) == 0) { p += 9; continue; }
+    if (strncmp(p, "GU_CONSTANT ", 12) == 0) { p += 12; continue; }
+    if (strncmp(p, "__global ", 9) == 0) { p += 9; continue; }
+    if (strncmp(p, "__local ", 8) == 0) { p += 8; continue; }
+    if (strncmp(p, "__constant ", 11) == 0) { p += 11; continue; }
+    *q++ = *p++;
+  }
+  *q = '\0';
+  return out;
+}
+
+/* Write C header with source string and extern declarations */
+static void gu_write_header(const char *header_path, const char *src,
+                            const gu_str_list *kernel_names, const gu_str_list *kernel_sigs) {
   FILE *f;
   size_t i;
   char *guard;
@@ -278,6 +336,21 @@ static void gu_write_header(const char *header_path, const char *src, const gu_s
   fprintf(f, "#ifndef %s\n", guard);
   fprintf(f, "#define %s\n\n", guard);
 
+  /* CUDA/HIP: extern declarations */
+  fprintf(f, "#if !defined(GUH_OPENCL)\n");
+  fprintf(f, "#ifdef __cplusplus\n");
+  fprintf(f, "extern \"C\" {\n");
+  fprintf(f, "#endif\n");
+  for (i = 0; i < kernel_sigs->count; ++i) {
+    char *simple_sig = gu_simplify_sig_for_extern(kernel_sigs->items[i]);
+    fprintf(f, "%s;\n", simple_sig);
+    free(simple_sig);
+  }
+  fprintf(f, "#ifdef __cplusplus\n");
+  fprintf(f, "}\n");
+  fprintf(f, "#endif\n");
+  fprintf(f, "#endif\n\n");
+
   /* Write source string for each kernel (OpenCL only; CUDA/HIP get NULL) */
   for (i = 0; i < kernel_names->count; ++i) {
     const char *name = kernel_names->items[i];
@@ -298,7 +371,6 @@ static void gu_write_header(const char *header_path, const char *src, const gu_s
     }
     fprintf(f, "\";\n");
     fprintf(f, "#else\n");
-    fprintf(f, "/* CUDA/HIP: source not needed, GU_KERNEL ignores this */\n");
     fprintf(f, "#define %s_gu_source ((const char*)0)\n", name);
     fprintf(f, "#endif\n\n");
   }
@@ -309,20 +381,36 @@ static void gu_write_header(const char *header_path, const char *src, const gu_s
   if (fclose(f) != 0) gu_die_errno("fclose");
 }
 
+static int gu_ends_with(const char *s, const char *suffix) {
+  size_t slen = strlen(s);
+  size_t sufflen = strlen(suffix);
+  if (sufflen > slen) return 0;
+  return strcmp(s + slen - sufflen, suffix) == 0;
+}
+
+static int gu_is_header_path(const char *path) {
+  return gu_ends_with(path, ".gu.h") || gu_ends_with(path, ".h");
+}
+
 static void gu_usage(FILE *out) {
   fprintf(out,
           "usage: render [options] <input>\n"
           "\n"
-          "Renders a restricted gpuni CUDA-truth kernel source into a single-file\n"
-          "OpenCL-friendly source by inlining \"gpuni.h\" and includes under \"gpuni/\".\n"
+          "Renders a gpuni CUDA-truth kernel (*.gu.cu) to a C header or OpenCL source.\n"
+          "Output format is determined by file extension:\n"
+          "  .gu.h / .h  -> C header with OpenCL source string + CUDA/HIP declarations\n"
+          "  .cl         -> raw OpenCL source (for debugging)\n"
           "\n"
           "options:\n"
-          "  -I <dir>        Add include directory (default: auto-detect repo root, else .)\n"
-          "  -o <path>       Write output to file (default: stdout)\n"
-          "  --emit-header <path>  Also emit C header with source string\n"
-          "  --line          Emit #line directives (default)\n"
-          "  --no-line       Do not emit #line directives\n"
-          "  -h, --help      Show this help\n");
+          "  -I <dir>      Add include directory (default: auto-detect)\n"
+          "  -o <path>     Output file (default: stdout as raw OpenCL)\n"
+          "  --line        Emit #line directives (default)\n"
+          "  --no-line     Do not emit #line directives\n"
+          "  -h, --help    Show this help\n"
+          "\n"
+          "examples:\n"
+          "  render kernel.gu.cu -o kernel.gu.h   # C header (recommended)\n"
+          "  render kernel.gu.cu -o kernel.cl     # raw OpenCL (for debugging)\n");
 }
 
 static char *gu_find_default_include_dir(const char *input_path) {
@@ -401,7 +489,6 @@ int main(int argc, char **argv) {
   gu_str_list seen_files;
   const char *input_path = NULL;
   const char *output_path = NULL;
-  const char *header_path = NULL;
   int emit_line_directives = 1;
   int i;
 
@@ -427,11 +514,6 @@ int main(int argc, char **argv) {
       output_path = argv[++i];
       continue;
     }
-    if (strcmp(arg, "--emit-header") == 0) {
-      if (i + 1 >= argc) gu_die("missing argument for --emit-header");
-      header_path = argv[++i];
-      continue;
-    }
     if (strcmp(arg, "-I") == 0) {
       if (i + 1 >= argc) gu_die("missing argument for -I");
       gu_str_list_push(&include_dirs, gu_xstrdup(argv[++i]));
@@ -454,39 +536,62 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  if (header_path && !output_path) {
-    gu_die("--emit-header requires -o <output>");
-  }
-
   if (include_dirs.count == 0) {
     gu_str_list_push(&include_dirs, gu_find_default_include_dir(input_path));
   }
 
-  /* Render to .cl file */
+  /* Determine output mode: header (.h/.gu.h) or raw OpenCL (.cl/stdout) */
   {
-    FILE *out = stdout;
-    if (output_path) {
-      out = fopen(output_path, "wb");
-      if (!out) gu_die_errno(output_path);
+    int output_header = 0;
+    const char *final_header_path = NULL;
+
+    /* Detect header output from -o extension */
+    if (output_path && gu_is_header_path(output_path)) {
+      output_header = 1;
+      final_header_path = output_path;
     }
 
-    gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+    if (output_header) {
+      /* Render to temp, then generate header */
+      char *temp_path = gu_xstrdup("/tmp/gpuni_render_XXXXXX");
+      FILE *out;
+      char *src;
+      gu_str_list kernel_names;
+      gu_str_list kernel_sigs;
 
-    if (output_path && fclose(out) != 0) gu_die_errno("fclose");
-  }
+      {
+        int fd = mkstemp(temp_path);
+        if (fd < 0) gu_die_errno("mkstemp");
+        out = fdopen(fd, "wb");
+        if (!out) { close(fd); gu_die_errno("fdopen"); }
+      }
 
-  /* Generate header if requested */
-  if (header_path) {
-    char *src = gu_read_file(output_path);
-    gu_str_list kernel_names;
-    memset(&kernel_names, 0, sizeof(kernel_names));
-    gu_find_kernel_names(src, &kernel_names);
-    if (kernel_names.count == 0) {
-      fprintf(stderr, "render: warning: no kernels found (void gu_*)\n");
+      gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+      if (fclose(out) != 0) gu_die_errno("fclose");
+
+      src = gu_read_file(temp_path);
+      memset(&kernel_names, 0, sizeof(kernel_names));
+      memset(&kernel_sigs, 0, sizeof(kernel_sigs));
+      gu_find_kernel_signatures(src, &kernel_names, &kernel_sigs);
+      if (kernel_names.count == 0) {
+        fprintf(stderr, "render: warning: no kernels found (void gu_*)\n");
+      }
+      gu_write_header(final_header_path, src, &kernel_names, &kernel_sigs);
+      gu_str_list_free(&kernel_names);
+      gu_str_list_free(&kernel_sigs);
+      free(src);
+      unlink(temp_path);
+      free(temp_path);
+    } else {
+      /* Raw OpenCL output */
+      FILE *out = stdout;
+      if (output_path) {
+        out = fopen(output_path, "wb");
+        if (!out) gu_die_errno(output_path);
+      }
+      gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+      if (output_path && fclose(out) != 0) gu_die_errno("fclose");
     }
-    gu_write_header(header_path, src, &kernel_names);
-    gu_str_list_free(&kernel_names);
-    free(src);
   }
 
   gu_str_list_free(&seen_files);
