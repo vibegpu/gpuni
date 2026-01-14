@@ -102,9 +102,12 @@ int main() {
 ## Build
 
 ```bash
+# OpenCL (render + host JIT)
 cc -O2 -std=c99 -o gpuni-render tools/render.c   # build render tool
-./gpuni-render saxpy.gu.cu -o saxpy.gu.h        # OpenCL needs kernel source string
+./gpuni-render saxpy.gu.cu -o saxpy.gu.h        # emit OpenCL source string header
+c++  -I. host.cpp -lOpenCL                      # uses saxpy.gu.h for JIT
+
+# CUDA/HIP (direct compile; no rendering)
 nvcc  -I. host.cpp saxpy.gu.cu
 hipcc -I. host.cpp saxpy.gu.cu
-c++   -I. host.cpp -lOpenCL                # uses saxpy.gu.h for JIT
 ```
