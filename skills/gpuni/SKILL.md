@@ -1,25 +1,42 @@
 ---
 name: gpuni
 description: >-
-  Write, refactor, and review gpuni CUDA-truth dialect kernels (*.gu.cu)
-  that compile as CUDA/HIP and render to OpenCL C 1.2. Use when working on:
-  (1) *.gu.cu kernels, (2) OpenCL 1.2 address spaces (__global/__local/__constant),
-  (3) portable atomics (atomic* + atomicAddFloat/MinFloat/MaxFloat + atomicAddFixed), (4) dynamic shared memory (bindSharedMem),
-  or (5) portability reviews for CUDA/HIP/OpenCL consistency.
+  Write cross-platform GPU compute kernels using gpuni CUDA-truth dialect (*.gu.cu).
+  Kernels compile natively as CUDA/HIP and render to OpenCL C 1.2.
+  Use when: (1) creating/editing *.gu.cu files, (2) writing portable GPU parallel code,
+  (3) using address-space qualifiers (__global/__local/__constant),
+  (4) implementing portable atomics (atomicAddFloat, atomicAddFixed),
+  (5) using dynamic shared memory (bindSharedMem),
+  (6) reviewing CUDA/HIP/OpenCL portability,
+  (7) debugging OpenCL render errors.
 ---
 
 # gpuni
 
-Canonical repo: `git@github.com:vibegpu/gpuni.git`
+Write portable GPU kernels in CUDA-truth dialect. Compiles as CUDA/HIP, renders to OpenCL C 1.2.
 
-If the gpuni package is not available locally, ask the user to provide it (or clone it if appropriate).
+## Critical Rules (always apply)
+
+```cpp
+// 1. Entry signature
+extern "C" __global__ void kernel_name(...)
+
+// 2. All pointers AND aliases must have address space
+__global float* output,           // param
+__global float* p = output;       // alias - MUST keep __global
+__local float* tile = smem + n;   // alias - MUST keep __local
+
+// 3. Barriers must be uniform (all threads reach it)
+__syncthreads();  // ✓ outside if
+if (cond) __syncthreads();  // ✗ divergent = deadlock
+```
 
 ## Workflow
 
-1. Read `references/README.md` for dialect rules and API reference
-2. Apply: `extern "C"`, address spaces on all pointers + aliases, uniform barriers
-3. If need code templates, read `references/examples.md`
-4. If OpenCL fails, check `references/dialect.md` for error → fix mapping
+1. Apply Critical Rules above for simple kernels
+2. Need API details? Read `references/README.md`
+3. Need code templates? Read `references/examples.md`
+4. Compile error? Check `references/dialect.md` (especially for OpenCL)
 
 ## Review Checklist
 
@@ -36,7 +53,7 @@ If the gpuni package is not available locally, ask the user to provide it (or cl
 |------|--------------|
 | `references/README.md` | Dialect rules + API (kernel & host) |
 | `references/examples.md` | Need complete code templates |
-| `references/dialect.md` | OpenCL compilation fails |
+| `references/dialect.md` | Compile errors (OpenCL error → fix mapping) |
 
 ## Package
 
