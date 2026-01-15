@@ -1,1 +1,1 @@
-skills/gpuni/README.md
+skills/gpuni/references/README.md

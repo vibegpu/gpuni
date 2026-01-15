@@ -16,7 +16,7 @@ If the gpuni package is not available locally, ask the user to provide it (or cl
 
 ## Workflow
 
-1. Read `README.md` for dialect rules and API reference
+1. Read `references/README.md` for dialect rules and API reference
 2. Apply: `extern "C"`, address spaces on all pointers + aliases, uniform barriers
 3. If need code templates, read `references/examples.md`
 4. If OpenCL fails, check `references/dialect.md` for error → fix mapping
@@ -34,7 +34,7 @@ If the gpuni package is not available locally, ask the user to provide it (or cl
 
 | File | When to read |
 |------|--------------|
-| `README.md` | Dialect rules + API (kernel & host) |
+| `references/README.md` | Dialect rules + API (kernel & host) |
 | `references/examples.md` | Need complete code templates |
 | `references/dialect.md` | OpenCL compilation fails |
 
