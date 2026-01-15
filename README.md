@@ -4,7 +4,7 @@ A small AI-friendly CUDA-truth kernel dialect for cross-platform GPU compute (CU
 
 **For AI coding (Codex/Claude Code):** use the `gpuni` skill from https://github.com/vibegpu/gpuni-skill (prompt: use `$gpuni`).
 
-**Package:** `gpuni.h` + `tools/render.c`
+**Package:** `gpuni.h` + `render.c`
 
 ## Kernel
 
@@ -110,7 +110,7 @@ int main() {
 
 ```bash
 # OpenCL (render + host JIT)
-cc -O2 -std=c99 -o gpuni-render tools/render.c   # build render tool
+cc -O2 -std=c99 -o gpuni-render render.c         # build render tool
 ./gpuni-render saxpy.gu.cu -o saxpy.gu.h        # emit OpenCL source string header
 c++  -I. host.cpp -lOpenCL                      # uses saxpy.gu.h for JIT
 
