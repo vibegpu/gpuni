@@ -2,7 +2,7 @@
 
 A small AI-friendly CUDA-truth kernel dialect for cross-platform GPU compute (CUDA, HIP, OpenCL C 1.2).
 
-**For AI coding (Codex/Claude Code):** use the `gpuni` skill from https://github.com/vibegpu/gpuni-skill (prompt: use `$gpuni`).
+**For AI coding (Codex/Claude Code):** use the `gpuni` skill from https://github.com/vibegpu/gpuni-skills (prompt: use `$gpuni`).
 
 **Package:** `gpuni.h` + `render.c`
 
