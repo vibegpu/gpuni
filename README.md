@@ -47,9 +47,9 @@ extern "C" __global__ void saxpy(int n,
 | Types | `int`, `uint`, `int64`, `uint64`, `float`, `double` |
 | Indexing | `threadIdx.x/y/z`, `blockIdx.x/y/z`, `blockDim.x/y/z`, `gridDim.x/y/z` — all dims available |
 | Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor` |
-| Atomics (float) | `atomicAddFloat`, `atomicMinFloat`, `atomicMaxFloat` — no `atomicAddDouble`, use Q32.32 |
-| Accumulator (Q32.32) | Kernel: `atomicAddFixed(__global int64* acc, double v)`. Host: `DoubleToFixed(v)`, `FixedToDouble(acc)`. For double accumulation. Range ±2^31 (~2e9), ~9 digits. |
-| Dynamic smem | Kernel: `__local T* smem` as **last param** + `bindSharedMem(smem)`. Host: smem bytes **before** kernel args in `Launch()` |
+| Atomics (float) | `atomicAddFloat(p,v)`, `atomicMinFloat(p,v)`, `atomicMaxFloat(p,v)` — `p` is `__global float*`. No `atomicAddDouble`, use Q32.32 |
+| Accumulator (Q32.32) | Kernel: `atomicAddFixed(__global int64* acc, double v)`. Host: `int64 init = DoubleToFixed(0.0);` → kernel → `double sum = FixedToDouble(result);`. Range ±2^31, ~9 decimal digits. |
+| Dynamic smem | **Optional.** Kernel: `__local T* smem` as last param + `bindSharedMem(smem)`. Host: `Launch(k, grid, block, smem_bytes, args...)`. Multi-array: `__local float* arr2 = smem + size1;` |
 | Restrict | `__restrict__` (pointer no-alias hint) |
 | Math | CUDA-style `sinf`, `cosf`, `rsqrtf`, `fminf`, `fmaxf`, `fmaf`, etc. work directly |
 
