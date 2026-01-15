@@ -36,7 +36,7 @@ extern "C" __global__ void saxpy(int n,
 - Entry: `extern "C" __global__ void <name>(...)` (prevents C++ name mangling)
 - Annotate pointers: `__global` / `__local` / `__constant` (including aliases)
   - Note: `__global__` (kernel modifier) ≠ `__global` (pointer address space)
-  - Aliases must retain address space: `__global float* alias = x;`
+  - Aliases must retain address space: `__global float* p = x;`, `__local float* tile = smem + offset;`
 
 **Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
 
@@ -49,7 +49,7 @@ extern "C" __global__ void saxpy(int n,
 | Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor` |
 | Atomics (float) | `atomicAddFloat`, `atomicMinFloat`, `atomicMaxFloat` — no `atomicAddDouble`, use Q32.32 |
 | Accumulator (Q32.32) | Kernel: `atomicAddFixed(__global int64* acc, double v)`. Host: `DoubleToFixed(v)`, `FixedToDouble(acc)`. For double accumulation. Range ±2^31 (~2e9), ~9 digits. |
-| Dynamic smem | `__local T* smem` as **last kernel parameter** (must be last!) + `bindSharedMem(smem)` at function start |
+| Dynamic smem | Kernel: `__local T* smem` as **last param** + `bindSharedMem(smem)`. Host: smem bytes **before** kernel args in `Launch()` |
 | Restrict | `__restrict__` (pointer no-alias hint) |
 | Math | CUDA-style `sinf`, `cosf`, `rsqrtf`, `fminf`, `fmaxf`, `fmaf`, etc. work directly |
 
