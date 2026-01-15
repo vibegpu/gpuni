@@ -13,7 +13,7 @@ Write `*.gu.cu`:
 ```cpp
 #include "gpuni.h"
 
-EXTERN_C __global__ void saxpy(int n,
+extern "C" __global__ void saxpy(int n,
                                __global float* __restrict__ y,        // __restrict__: no-alias hint
                                __global const float* __restrict__ x,
                                float a,
@@ -33,7 +33,7 @@ EXTERN_C __global__ void saxpy(int n,
 ## Dialect Rules
 
 **Required:**
-- Entry: `EXTERN_C __global__ void <name>(...)` (EXTERN_C for better compatibility)
+- Entry: `extern "C" __global__ void <name>(...)` (prevents C++ name mangling)
 - Annotate pointers: `__global` / `__local` / `__constant` (including aliases)
 
 **Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
@@ -63,7 +63,7 @@ int main() {
   int grid = (n + block - 1) / block;
   size_t smem = block * sizeof(float);  // dynamic shared memory size
 
-  SetDevice(0);  // must call before Malloc/GU_KERNEL
+  SetDevice(0);  // must call before Malloc/GetKernel
 
   float* d_x = Malloc<float>(n);
   float* d_y = Malloc<float>(n);
@@ -75,7 +75,7 @@ int main() {
   Memcpy(d_x, h_x, n * sizeof(float), H2D);
   Memcpy(d_y, h_y, n * sizeof(float), H2D);
 
-  auto k = GU_KERNEL(saxpy);  // cache and reuse; avoid repeated JIT
+  auto k = GetKernel(saxpy);  // cache and reuse; avoid repeated JIT
   Launch(k, grid, block, smem, n, d_y, d_x, a);  // smem before kernel args
 
   DeviceSync();
@@ -93,7 +93,7 @@ int main() {
 | Device | `SetDevice(id)`, `GetDevice()`, `GetDeviceCount()`, `DeviceSync()` |
 | Memory | `Malloc<T>(n)`, `Free(p)`, `Memset(p,v,bytes)`, `MallocHost<T>(n)`, `FreeHost(p)` |
 | Copy | `Memcpy(dst,src,bytes,kind)`, `MemcpyAsync(...,stream)` |
-| Kernel | `GU_KERNEL(fn)`, `Launch(k, grid, block, args...)` |
+| Kernel | `GetKernel(fn)`, `Launch(k, grid, block, args...)` |
 | Stream | `stream s; s.sync();` or `StreamSynchronize(s)` |
 | Event | `event e; e.record(s); e.sync();` or `EventRecord(e,s); EventSynchronize(e)` |
 | Timing | `ElapsedTime(e1, e2)` |

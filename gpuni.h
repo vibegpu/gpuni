@@ -955,9 +955,9 @@ namespace detail {
 } // namespace detail
 
 #if defined(GUH_NATIVE)
-#define GU_KERNEL(fn) (fn)
+#define GetKernel(fn) (fn)
 #elif defined(GUH_OPENCL)
-#define GU_KERNEL(fn) ([]() { \
+#define GetKernel(fn) ([]() { \
   gu::detail::kernel_ref kr; cl_int e; \
   const char* src = fn##_gu_source; \
   kr.p = clCreateProgramWithSource(gu::detail::g_context, 1, &src, nullptr, &e); \

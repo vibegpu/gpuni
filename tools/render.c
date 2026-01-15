@@ -225,6 +225,24 @@ static void gu_render_file(FILE *out,
       free(inc);
     }
 
+    /* Strip 'extern "C" ' prefix (OpenCL C doesn't support it) */
+    {
+      const char *p = gu_skip_ws(line);
+      if (strncmp(p, "extern \"C\"", 10) == 0) {
+        p += 10;
+        p = gu_skip_ws(p);
+        if (*p == '\0' || *p == '\n' || *p == '\r') {
+          /* Line is just 'extern "C"' - skip entirely */
+          free(line);
+          continue;
+        }
+        /* Line has content after 'extern "C" ' - output without the prefix */
+        fputs(p, out);
+        free(line);
+        continue;
+      }
+    }
+
     fputs(line, out);
     free(line);
   }
