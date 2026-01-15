@@ -3,7 +3,7 @@ name: gpuni
 description: >-
   Write, refactor, and review gpuni CUDA-truth dialect kernels (*.gu.cu)
   that compile as CUDA/HIP and render to OpenCL C 1.2. Use when working on:
-  (1) *.gu.cu kernels, (2) OpenCL 1.2 address spaces (GU_GLOBAL/GU_LOCAL/GU_CONSTANT),
+  (1) *.gu.cu kernels, (2) OpenCL 1.2 address spaces (__global/__local/__constant),
   (3) portable atomics (atomic* + atomicAddFloat/MinFloat/MaxFloat + atomicAddFixed), (4) dynamic shared memory (bindSharedMem),
   or (5) portability reviews for CUDA/HIP/OpenCL consistency.
 ---
@@ -14,30 +14,38 @@ Canonical repo: `git@github.com:vibegpu/gpuni.git`
 
 If the gpuni package is not available locally, ask the user to provide it (or clone it if appropriate).
 
-Read the dialect contract first:
-- Dev workspace: `gpuni/README.md`
-- Released package: `README.md`
-
-Treat the README as the source of truth. Do not read `gpuni.h` or renderer sources during normal kernel work.
+**Source of truth:** `README.md` (or `gpuni/README.md` in dev repo). Do not read `gpuni.h` during normal work.
 
 ## Workflow
 
-1) Identify the kernel(s): `*.gu.cu`.
-2) Apply the README "Dialect Rules" (entry signature, address spaces on every pointer + alias, C subset, uniform barriers, no warp/subgroup intrinsics).
-3) If OpenCL compilation fails, use `references/dialect.md` to map errors → fixes (usually pointer aliases or divergent barriers).
-4) Validate using the repo's smoke/lint scripts (see README "Verification").
+**Writing/editing kernel (`*.gu.cu`):**
+1. Read `references/kernel-api.md` for types, indexing, atomics, smem
+2. Apply dialect rules: `extern "C"`, address spaces on all pointers + aliases, uniform barriers
+3. If OpenCL fails, check `references/dialect.md` for error → fix mapping
 
-## Review Rules
+**Writing/editing host code:**
+1. Read `references/host-api.md` for memory, launch, streams, events
+2. Include `kernel.gu.h` for OpenCL JIT (CUDA/HIP don't need it)
 
-Reject:
-- Any change making kernels "not valid CUDA without CUDA-side translation"
-- Missing address-space qualifiers on pointer aliases (require explicit annotation)
-- Barriers in control flow that some threads may skip
+**Need complete patterns?** Read `references/examples.md`
+
+## Review Checklist
+
+- [ ] All pointers have `__global`/`__local`/`__constant`
+- [ ] All pointer aliases retain address-space qualifier
+- [ ] `__syncthreads()` reachable by all threads (no divergent barriers)
+- [ ] Entry uses `extern "C" __global__ void`
+- [ ] Dynamic smem param is last + `bindSharedMem()` called
+- [ ] No warp intrinsics (`__shfl*`, `__ballot*`)
 
 ## References
 
-- Dialect contract, API, examples: `README.md` (or `gpuni/README.md` in this dev repo)
-- Error diagnosis (AI): `references/dialect.md`
+| File | When to read |
+|------|--------------|
+| `references/kernel-api.md` | Writing kernel code (`*.gu.cu`) |
+| `references/host-api.md` | Writing host code (C++) |
+| `references/examples.md` | Need complete kernel+host patterns |
+| `references/dialect.md` | OpenCL compilation fails |
 
 ## Package
 
