@@ -41,6 +41,15 @@ if (cond) __syncthreads();  // ✗ divergent = deadlock
 3. Need code templates? Read `references/examples.md`
 4. Compile error? Check `references/dialect.md` (especially for OpenCL)
 
+## Host Pitfall
+
+```cpp
+// gu::Malloc returns device memory - NEVER dereference on host
+float* d_x = gu::Malloc<float>(n);
+d_x[0] = 1.0f;  // ✗ WRONG: segfault or undefined behavior
+gu::Memcpy(d_x, h_x, bytes, gu::H2D);  // ✓ use Memcpy instead
+```
+
 ## Review Checklist
 
 - [ ] All pointers have `__global`/`__local`/`__constant`
