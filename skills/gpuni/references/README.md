@@ -37,6 +37,7 @@ extern "C" __global__ void saxpy(int n,
 - Annotate pointers: `__global` / `__local` / `__constant` (including aliases)
   - Note: `__global__` (kernel modifier) ≠ `__global` (pointer address space)
   - Aliases must retain address space: `__global float* p = x;`, `__local float* tile = smem + offset;`
+- Includes: dialect kernels should only `#include "gpuni.h"` (and optionally `#include "gpuni/..."`), no `<...>` system includes.
 
 **Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
 

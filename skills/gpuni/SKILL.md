@@ -18,6 +18,9 @@ Write portable GPU kernels in CUDA-truth dialect. Compiles as CUDA/HIP, renders 
 ## Critical Rules (always apply)
 
 ```cpp
+// 0. Dialect file basics
+// - Only include "gpuni.h" (no <...> system includes)
+
 // 1. Entry signature
 extern "C" __global__ void kernel_name(...)
 
@@ -46,6 +49,7 @@ if (cond) __syncthreads();  // ✗ divergent = deadlock
 - [ ] Entry uses `extern "C" __global__ void`
 - [ ] Dynamic smem param is last + `bindSharedMem()` called
 - [ ] No warp intrinsics (`__shfl*`, `__ballot*`)
+- [ ] No system includes in kernels (no `<...>`; only `"gpuni.h"` or `"gpuni/..."`)
 
 ## References
 
@@ -57,4 +61,11 @@ if (cond) __syncthreads();  // ✗ divergent = deadlock
 
 ## Package
 
-`gpuni.h`, `tools/render.c`, `README.md`, `skills/gpuni/`
+Source: **https://github.com/vibegpu/gpuni**
+
+| File | Purpose |
+|------|---------|
+| `gpuni.h` | Core header (backend detection, macros, portable APIs) |
+| `tools/render.c` | Offline CUDA→OpenCL renderer |
+| `README.md` | Usage guide |
+| `skills/gpuni/` | AI skill definitions |
