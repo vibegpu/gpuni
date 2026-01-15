@@ -6,7 +6,7 @@ A small AI-friendly CUDA-truth kernel dialect for cross-platform GPU compute (CU
 
 **Package:** `gpuni.h` + `render.c`
 
-## Kernel
+## Kernel (Device Code)
 
 Write `*.gu.cu`:
 
@@ -30,7 +30,7 @@ extern "C" __global__ void saxpy(int n,
 }
 ```
 
-## Dialect Rules
+### Dialect Rules
 
 **Required:**
 - Entry: `extern "C" __global__ void <name>(...)` (prevents C++ name mangling)
@@ -41,7 +41,7 @@ extern "C" __global__ void saxpy(int n,
 
 **Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
 
-## Kernel API Reference
+### API Reference
 
 | Category | API |
 |----------|-----|
