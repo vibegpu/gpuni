@@ -45,9 +45,10 @@ extern "C" __global__ void saxpy(int n,
 | Category | API |
 |----------|-----|
 | Types | `int`, `uint`, `int64`, `uint64`, `float`, `double` |
+| Indexing | `threadIdx.x/y/z`, `blockIdx.x/y/z`, `blockDim.x/y/z`, `gridDim.x/y/z` — all dims available |
 | Atomics (int) | `atomicAdd`, `atomicSub`, `atomicExch`, `atomicMin`, `atomicMax`, `atomicCAS`, `atomicAnd`, `atomicOr`, `atomicXor` |
-| Atomics (float) | `atomicAddFloat`, `atomicMinFloat`, `atomicMaxFloat` |
-| Accumulator (Q32.32) | Kernel: `atomicAddFixed(int64* acc, double v)`. Host: `DoubleToFixed(double v)`, `FixedToDouble(int64 acc)`. Usage: (1) init `int64 acc=0`, (2) kernel calls `atomicAddFixed(&acc, v)`, (3) host reads `FixedToDouble(acc)`. Range ±2^31 (~2e9), ~9 digits. |
+| Atomics (float) | `atomicAddFloat`, `atomicMinFloat`, `atomicMaxFloat` — no `atomicAddDouble`, use Q32.32 |
+| Accumulator (Q32.32) | Kernel: `atomicAddFixed(__global int64* acc, double v)`. Host: `DoubleToFixed(v)`, `FixedToDouble(acc)`. For double accumulation. Range ±2^31 (~2e9), ~9 digits. |
 | Dynamic smem | `__local T* smem` as **last kernel parameter** (must be last!) + `bindSharedMem(smem)` at function start |
 | Restrict | `__restrict__` (pointer no-alias hint) |
 | Math | CUDA-style `sinf`, `cosf`, `rsqrtf`, `fminf`, `fmaxf`, `fmaf`, etc. work directly |
@@ -95,7 +96,7 @@ int main() {
 | Device | `SetDevice(id)`, `GetDevice()`, `GetDeviceCount()`, `DeviceSync()` |
 | Memory | `Malloc<T>(n)`, `Free(p)`, `Memset(p,v,bytes)`, `MallocHost<T>(n)`, `FreeHost(p)` |
 | Copy | `Memcpy(dst,src,bytes,kind)`, `MemcpyAsync(...,stream)` |
-| Kernel | `GetKernel(fn)`, `Launch(k, grid, block, [smem,] [stream,] args...)` |
+| Kernel | `GetKernel(fn)`, `Launch(k, grid, block, [smem,] [stream,] args...)` — order: smem before stream |
 | Stream | `stream s; s.sync();` or `StreamSynchronize(s)` |
 | Event | `event e; e.record(s); e.sync();` or `EventRecord(e,s); EventSynchronize(e)` |
 | Timing | `ElapsedTime(e1, e2)` |
