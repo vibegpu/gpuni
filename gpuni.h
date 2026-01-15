@@ -3,10 +3,10 @@
 
 /* gpuni CUDA-truth kernel dialect.
  *
- * Naming principle:
- * - Prefer CUDA/C99 spellings in kernels (math `*f`, `atomicAdd/atomicCAS/...`, etc.).
- * - Use `gu_*` only for real portability gaps where OpenCL 1.2 needs extra code
- *   to emulate missing semantics (e.g. fixed-point float accumulation, `u64` add).
+ * Naming:
+ * - Kernel API: camelCase (`atomicAddFloat`, `atomicAddFixed`, `bindSharedMem`)
+ * - Host API: PascalCase (`SetDevice`, `GetKernel`, `Launch`, `Check`)
+ * - Internal: underscore prefix (`_atomicAddF32Impl`, `_gpuni_smem_`)
  */
 
 #define GU_DIALECT_VERSION 1
@@ -63,11 +63,7 @@ typedef long long int64;
 typedef unsigned long long uint64;
 #endif
 
-/* Internal type aliases (for gpuni.h implementation) */
-typedef int gu_i32;
-typedef uint gu_u32;
-typedef int64 gu_i64;
-typedef uint64 gu_u64;
+/* Types int, uint, int64, uint64 are used directly (no aliases needed) */
 
 #define GU_FIXED_Q32_32_SCALE_F 4294967296.0f
 #define GU_FIXED_Q32_32_INV_SCALE_F 2.3283064365386963e-10f /* 2^-32 */
@@ -272,7 +268,7 @@ typedef uint64 gu_u64;
    - If cl_khr_int64_base_atomics is unavailable, u64 add falls back to 2x u32
      atomics + carry (correct for accumulation; not a full 64-bit RMW API). */
 
-static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
+static GU_INLINE void _atomicAddU64Impl(GU_GLOBAL uint64* p, uint64 val) {
 #  if defined(cl_khr_int64_base_atomics) && !defined(GU_DISABLE_OPENCL_INT64_ATOMICS)
   (void)atom_add((volatile __global ulong*)p, (ulong)val);
 #  else
@@ -300,7 +296,7 @@ static GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
    Use for summing many values; convert result back to double after kernel completes.
    Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
 static GU_INLINE void atomicAddFixed(GU_GLOBAL int64* p, double x) {
-  gu_atomic_add_u64((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
+  _atomicAddU64Impl((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
 static GU_INLINE int64 doubleToFixed(double x) {
@@ -313,12 +309,12 @@ static GU_INLINE double fixedToDouble(int64 x) {
 
 /* Float atomic add (OpenCL 1.2 has no atomic_add(float); emulate via CAS on u32 bits).
    Correctness-first; prefer fixed-point(Q32.32) for high-throughput accumulation. */
-static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
-  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
-  gu_u32 old = atomic_add(u, (gu_u32)0);
+static GU_INLINE float _atomicAddF32Impl(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL uint* u = (volatile GU_GLOBAL uint*)p;
+  uint old = atomic_add(u, (uint)0);
   for (;;) {
-    gu_u32 assumed = old;
-    gu_u32 desired = as_uint(as_float(assumed) + x);
+    uint assumed = old;
+    uint desired = as_uint(as_float(assumed) + x);
     old = atomic_cmpxchg(u, assumed, desired);
     if (old == assumed) return as_float(assumed);
   }
@@ -328,38 +324,36 @@ static GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
    Notes:
    - OpenCL C 1.2 cannot overload by type for user-defined functions; keep names explicit.
    - Float min/max/add use CAS on u32 bits for OpenCL portability. */
-static GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
-
-static GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
-  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
-  gu_u32 old = atomicAdd((volatile GU_GLOBAL gu_u32*)u, (gu_u32)0);
+static GU_INLINE float _atomicMinF32Impl(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL uint* u = (volatile GU_GLOBAL uint*)p;
+  uint old = atomicAdd((volatile GU_GLOBAL uint*)u, (uint)0);
   for (;;) {
-    gu_u32 assumed = old;
+    uint assumed = old;
     float assumed_f = as_float(assumed);
     float desired_f = fminf(assumed_f, x);
-    gu_u32 desired = as_uint(desired_f);
-    old = atomicCAS((volatile GU_GLOBAL gu_u32*)u, assumed, desired);
+    uint desired = as_uint(desired_f);
+    old = atomicCAS((volatile GU_GLOBAL uint*)u, assumed, desired);
     if (old == assumed) return assumed_f;
   }
 }
 
-static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
-  volatile GU_GLOBAL gu_u32* u = (volatile GU_GLOBAL gu_u32*)p;
-  gu_u32 old = atomicAdd((volatile GU_GLOBAL gu_u32*)u, (gu_u32)0);
+static GU_INLINE float _atomicMaxF32Impl(GU_GLOBAL float* p, float x) {
+  volatile GU_GLOBAL uint* u = (volatile GU_GLOBAL uint*)p;
+  uint old = atomicAdd((volatile GU_GLOBAL uint*)u, (uint)0);
   for (;;) {
-    gu_u32 assumed = old;
+    uint assumed = old;
     float assumed_f = as_float(assumed);
     float desired_f = fmaxf(assumed_f, x);
-    gu_u32 desired = as_uint(desired_f);
-    old = atomicCAS((volatile GU_GLOBAL gu_u32*)u, assumed, desired);
+    uint desired = as_uint(desired_f);
+    old = atomicCAS((volatile GU_GLOBAL uint*)u, assumed, desired);
     if (old == assumed) return assumed_f;
   }
 }
 
 /* Float atomic aliases */
-#define atomicAddFloat guAtomicAddF32
-#define atomicMinFloat guAtomicMinF32
-#define atomicMaxFloat guAtomicMaxF32
+#define atomicAddFloat _atomicAddF32Impl
+#define atomicMinFloat _atomicMinF32Impl
+#define atomicMaxFloat _atomicMaxF32Impl
 
 /* OpenCL is C, no extern "C" needed */
 #  define EXTERN_C
@@ -406,74 +400,72 @@ static GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
 
 /* Dynamic shared memory: CUDA/HIP binds to extern __shared__ */
 #  define bindSharedMem(ptr) \
-     extern __shared__ unsigned char _gu_smem_[]; \
-     (ptr) = (decltype(ptr))(&_gu_smem_[0])
+     extern __shared__ unsigned char _gpuni_smem_[]; \
+     (ptr) = (decltype(ptr))(&_gpuni_smem_[0])
 
 #  if defined(GU_BACKEND_CUDA) || defined(GU_BACKEND_HIP)
-static __device__ GU_INLINE void gu_atomic_add_u64(GU_GLOBAL gu_u64* p, gu_u64 val) {
+static __device__ GU_INLINE void _atomicAddU64Impl(GU_GLOBAL uint64* p, uint64 val) {
   (void)atomicAdd((unsigned long long*)p, (unsigned long long)val);
 }
 
-static __device__ GU_INLINE float gu_atomic_add_f32(GU_GLOBAL float* p, float x) {
+static __device__ GU_INLINE float _atomicAddF32Impl(GU_GLOBAL float* p, float x) {
   return atomicAdd((float*)p, x);
 }
 
-static __device__ GU_INLINE gu_u32 gu_bitcast_u32_from_f32(float x) {
+static __device__ GU_INLINE uint _bitcastU32FromF32(float x) {
   union {
     float f;
-    gu_u32 u;
+    uint u;
   } v;
   v.f = x;
   return v.u;
 }
 
-static __device__ GU_INLINE float gu_bitcast_f32_from_u32(gu_u32 x) {
+static __device__ GU_INLINE float _bitcastF32FromU32(uint x) {
   union {
     float f;
-    gu_u32 u;
+    uint u;
   } v;
   v.u = x;
   return v.f;
 }
 
-static __device__ GU_INLINE float guAtomicAddF32(GU_GLOBAL float* p, float x) { return gu_atomic_add_f32(p, x); }
-
-static __device__ GU_INLINE float guAtomicMinF32(GU_GLOBAL float* p, float x) {
-  gu_u32* u = (gu_u32*)p;
-  gu_u32 old = atomicCAS((unsigned int*)u, 0u, 0u);
+static __device__ GU_INLINE float _atomicMinF32Impl(GU_GLOBAL float* p, float x) {
+  uint* u = (uint*)p;
+  uint old = atomicCAS((unsigned int*)u, 0u, 0u);
   for (;;) {
-    gu_u32 assumed = old;
-    float assumed_f = gu_bitcast_f32_from_u32(assumed);
+    uint assumed = old;
+    float assumed_f = _bitcastF32FromU32(assumed);
     float desired_f = fminf(assumed_f, x);
-    gu_u32 desired = gu_bitcast_u32_from_f32(desired_f);
+    uint desired = _bitcastU32FromF32(desired_f);
     old = atomicCAS((unsigned int*)u, (unsigned int)assumed, (unsigned int)desired);
     if (old == assumed) return assumed_f;
   }
 }
 
-static __device__ GU_INLINE float guAtomicMaxF32(GU_GLOBAL float* p, float x) {
-  gu_u32* u = (gu_u32*)p;
-  gu_u32 old = atomicCAS((unsigned int*)u, 0u, 0u);
+static __device__ GU_INLINE float _atomicMaxF32Impl(GU_GLOBAL float* p, float x) {
+  uint* u = (uint*)p;
+  uint old = atomicCAS((unsigned int*)u, 0u, 0u);
   for (;;) {
-    gu_u32 assumed = old;
-    float assumed_f = gu_bitcast_f32_from_u32(assumed);
+    uint assumed = old;
+    float assumed_f = _bitcastF32FromU32(assumed);
     float desired_f = fmaxf(assumed_f, x);
-    gu_u32 desired = gu_bitcast_u32_from_f32(desired_f);
+    uint desired = _bitcastU32FromF32(desired_f);
     old = atomicCAS((unsigned int*)u, (unsigned int)assumed, (unsigned int)desired);
     if (old == assumed) return assumed_f;
   }
 }
 
 /* Float atomic aliases */
-#define atomicAddFloat guAtomicAddF32
-#define atomicMinFloat guAtomicMinF32
-#define atomicMaxFloat guAtomicMaxF32
+#define atomicAddFloat _atomicAddF32Impl
+#define atomicMinFloat _atomicMinF32Impl
+#define atomicMaxFloat _atomicMaxF32Impl
 
 /* Q32.32 fixed-point accumulator: high-throughput atomic add without CAS contention.
    Use for summing many values; convert result back to double after kernel completes.
    Precision: 32-bit integer + 32-bit fraction (~9 decimal digits). */
 static __device__ GU_INLINE void atomicAddFixed(GU_GLOBAL int64* p, double x) {
-  gu_atomic_add_u64((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
+  _atomicAddU64Impl((GU_GLOBAL uint64*)p, (uint64)(int64)(x * GU_FIXED_Q32_32_SCALE_D));
 }
 
 static __device__ GU_INLINE int64 doubleToFixed(double x) {
@@ -945,6 +937,30 @@ namespace detail {
   static inline void set_arg(kernel_ref& kr, int& idx, const T& v) {
     clSetKernelArg(kr.k, (cl_uint)idx++, sizeof(T), &v);
   }
+
+  /* Kernel cache: auto-caches compiled kernels by source pointer */
+  struct kernel_cache_entry {
+    const char* src;
+    kernel_ref kr;
+    kernel_cache_entry* next;
+  };
+
+  inline kernel_ref& get_or_compile(const char* src, const char* name) {
+    static kernel_cache_entry* head = nullptr;
+    for (auto* e = head; e; e = e->next) {
+      if (e->src == src) return e->kr;
+    }
+    auto* entry = new kernel_cache_entry{src, {}, head};
+    cl_int err;
+    entry->kr.p = clCreateProgramWithSource(g_context, 1, &src, nullptr, &err);
+    if (err == CL_SUCCESS) {
+      err = clBuildProgram(entry->kr.p, 1, &g_device, "-cl-std=CL1.2", nullptr, nullptr);
+      if (err == CL_SUCCESS) entry->kr.k = clCreateKernel(entry->kr.p, name, &err);
+    }
+    g_last_error = err;
+    head = entry;
+    return entry->kr;
+  }
 #endif
 
   template<typename... Args>
@@ -957,16 +973,7 @@ namespace detail {
 #if defined(GUH_NATIVE)
 #define GetKernel(fn) (fn)
 #elif defined(GUH_OPENCL)
-#define GetKernel(fn) ([]() { \
-  gu::detail::kernel_ref kr; cl_int e; \
-  const char* src = fn##_gu_source; \
-  kr.p = clCreateProgramWithSource(gu::detail::g_context, 1, &src, nullptr, &e); \
-  if (e == CL_SUCCESS) { \
-    e = clBuildProgram(kr.p, 1, &gu::detail::g_device, "-cl-std=CL1.2", nullptr, nullptr); \
-    if (e == CL_SUCCESS) kr.k = clCreateKernel(kr.p, #fn, &e); \
-  } \
-  gu::detail::g_last_error = e; return kr; \
-}())
+#define GetKernel(fn) gu::detail::get_or_compile(fn##_gpuni_src, #fn)
 #endif
 
 #if defined(GUH_NATIVE)

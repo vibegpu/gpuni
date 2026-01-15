@@ -20,47 +20,47 @@ typedef struct {
   char **items;
   size_t count;
   size_t capacity;
-} gu_str_list;
+} gpuni_str_list;
 
-static void gu_die(const char *msg) {
+static void gpuni_die(const char *msg) {
   fprintf(stderr, "render: %s\n", msg);
   exit(1);
 }
 
-static void gu_die_errno(const char *context) {
+static void gpuni_die_errno(const char *context) {
   fprintf(stderr, "render: %s: %s\n", context, strerror(errno));
   exit(1);
 }
 
-static void *gu_xmalloc(size_t n) {
+static void *gpuni_xmalloc(size_t n) {
   void *p = malloc(n);
-  if (!p) gu_die("out of memory");
+  if (!p) gpuni_die("out of memory");
   return p;
 }
 
-static void *gu_xrealloc(void *p, size_t n) {
+static void *gpuni_xrealloc(void *p, size_t n) {
   void *q = realloc(p, n);
-  if (!q) gu_die("out of memory");
+  if (!q) gpuni_die("out of memory");
   return q;
 }
 
-static char *gu_xstrdup(const char *s) {
+static char *gpuni_xstrdup(const char *s) {
   size_t n = strlen(s) + 1;
-  char *p = (char *)gu_xmalloc(n);
+  char *p = (char *)gpuni_xmalloc(n);
   memcpy(p, s, n);
   return p;
 }
 
-static void gu_str_list_push(gu_str_list *list, char *owned) {
+static void gpuni_str_list_push(gpuni_str_list *list, char *owned) {
   if (list->count == list->capacity) {
     size_t new_capacity = list->capacity ? list->capacity * 2 : 8;
-    list->items = (char **)gu_xrealloc(list->items, new_capacity * sizeof(list->items[0]));
+    list->items = (char **)gpuni_xrealloc(list->items, new_capacity * sizeof(list->items[0]));
     list->capacity = new_capacity;
   }
   list->items[list->count++] = owned;
 }
 
-static int gu_str_list_contains(const gu_str_list *list, const char *s) {
+static int gpuni_str_list_contains(const gpuni_str_list *list, const char *s) {
   size_t i;
   for (i = 0; i < list->count; ++i) {
     if (strcmp(list->items[i], s) == 0) return 1;
@@ -68,7 +68,7 @@ static int gu_str_list_contains(const gu_str_list *list, const char *s) {
   return 0;
 }
 
-static void gu_str_list_free(gu_str_list *list) {
+static void gpuni_str_list_free(gpuni_str_list *list) {
   size_t i;
   for (i = 0; i < list->count; ++i) free(list->items[i]);
   free(list->items);
@@ -77,30 +77,30 @@ static void gu_str_list_free(gu_str_list *list) {
   list->capacity = 0;
 }
 
-static int gu_file_exists(const char *path) {
+static int gpuni_file_exists(const char *path) {
   struct stat st;
   if (stat(path, &st) != 0) return 0;
   return S_ISREG(st.st_mode) != 0;
 }
 
-static char *gu_dirname_owned(const char *path) {
+static char *gpuni_dirname_owned(const char *path) {
   const char *slash = strrchr(path, GU_PATH_SEP);
-  if (!slash) return gu_xstrdup(".");
-  if (slash == path) return gu_xstrdup("/");
+  if (!slash) return gpuni_xstrdup(".");
+  if (slash == path) return gpuni_xstrdup("/");
   {
     size_t n = (size_t)(slash - path);
-    char *out = (char *)gu_xmalloc(n + 1);
+    char *out = (char *)gpuni_xmalloc(n + 1);
     memcpy(out, path, n);
     out[n] = '\0';
     return out;
   }
 }
 
-static char *gu_join_path(const char *a, const char *b) {
+static char *gpuni_join_path(const char *a, const char *b) {
   size_t a_len = strlen(a);
   size_t b_len = strlen(b);
   int need_sep = (a_len > 0 && a[a_len - 1] != GU_PATH_SEP);
-  char *out = (char *)gu_xmalloc(a_len + (need_sep ? 1 : 0) + b_len + 1);
+  char *out = (char *)gpuni_xmalloc(a_len + (need_sep ? 1 : 0) + b_len + 1);
   memcpy(out, a, a_len);
   if (need_sep) out[a_len++] = GU_PATH_SEP;
   memcpy(out + a_len, b, b_len);
@@ -108,28 +108,28 @@ static char *gu_join_path(const char *a, const char *b) {
   return out;
 }
 
-static char *gu_abspath_or_dup(const char *path) {
+static char *gpuni_abspath_or_dup(const char *path) {
 #if defined(_WIN32)
-  return gu_xstrdup(path);
+  return gpuni_xstrdup(path);
 #else
-  if (path[0] == '/') return gu_xstrdup(path);
+  if (path[0] == '/') return gpuni_xstrdup(path);
   {
     char cwd[4096];
-    if (!getcwd(cwd, sizeof(cwd))) return gu_xstrdup(path);
-    return gu_join_path(cwd, path);
+    if (!getcwd(cwd, sizeof(cwd))) return gpuni_xstrdup(path);
+    return gpuni_join_path(cwd, path);
   }
 #endif
 }
 
-static char *gu_read_line(FILE *f) {
+static char *gpuni_read_line(FILE *f) {
   size_t len = 0;
   size_t cap = 256;
-  char *buf = (char *)gu_xmalloc(cap);
+  char *buf = (char *)gpuni_xmalloc(cap);
   int c;
   while ((c = fgetc(f)) != EOF) {
     if (len + 1 >= cap) {
       cap *= 2;
-      buf = (char *)gu_xrealloc(buf, cap);
+      buf = (char *)gpuni_xrealloc(buf, cap);
     }
     buf[len++] = (char)c;
     if (c == '\n') break;
@@ -142,21 +142,21 @@ static char *gu_read_line(FILE *f) {
   return buf;
 }
 
-static const char *gu_skip_ws(const char *s) {
+static const char *gpuni_skip_ws(const char *s) {
   while (*s == ' ' || *s == '\t' || *s == '\r' || *s == '\n' || *s == '\f' || *s == '\v') ++s;
   return s;
 }
 
-static int gu_parse_include(const char *line, char *out_delim, char **out_path) {
-  const char *p = gu_skip_ws(line);
+static int gpuni_parse_include(const char *line, char *out_delim, char **out_path) {
+  const char *p = gpuni_skip_ws(line);
   const char *q;
   size_t n;
   if (*p != '#') return 0;
   ++p;
-  p = gu_skip_ws(p);
+  p = gpuni_skip_ws(p);
   if (strncmp(p, "include", 7) != 0) return 0;
   p += 7;
-  p = gu_skip_ws(p);
+  p = gpuni_skip_ws(p);
   if (*p != '"' && *p != '<') return 0;
   *out_delim = *p;
   ++p;
@@ -164,58 +164,58 @@ static int gu_parse_include(const char *line, char *out_delim, char **out_path) 
   while (*q && *q != (*out_delim == '"' ? '"' : '>')) ++q;
   if (!*q) return 0;
   n = (size_t)(q - p);
-  *out_path = (char *)gu_xmalloc(n + 1);
+  *out_path = (char *)gpuni_xmalloc(n + 1);
   memcpy(*out_path, p, n);
   (*out_path)[n] = '\0';
   return 1;
 }
 
-static char *gu_resolve_gpuni_include(const gu_str_list *include_dirs, const char *include_path) {
+static char *gpuni_resolve_gpuni_include(const gpuni_str_list *include_dirs, const char *include_path) {
   size_t i;
   if (strcmp(include_path, "gpuni/dialect.h") == 0) include_path = "gpuni.h";
   for (i = 0; i < include_dirs->count; ++i) {
-    char *candidate = gu_join_path(include_dirs->items[i], include_path);
-    if (gu_file_exists(candidate)) return candidate;
+    char *candidate = gpuni_join_path(include_dirs->items[i], include_path);
+    if (gpuni_file_exists(candidate)) return candidate;
     free(candidate);
   }
   return NULL;
 }
 
-static void gu_render_file(FILE *out,
-                           const gu_str_list *include_dirs,
-                           gu_str_list *seen_files,
+static void gpuni_render_file(FILE *out,
+                           const gpuni_str_list *include_dirs,
+                           gpuni_str_list *seen_files,
                            const char *path,
                            int emit_line_directives) {
   FILE *f;
-  char *canonical = gu_abspath_or_dup(path);
+  char *canonical = gpuni_abspath_or_dup(path);
   char *line;
   unsigned long line_no = 0;
 
-  if (gu_str_list_contains(seen_files, canonical)) {
+  if (gpuni_str_list_contains(seen_files, canonical)) {
     free(canonical);
     return;
   }
-  gu_str_list_push(seen_files, canonical);
+  gpuni_str_list_push(seen_files, canonical);
 
   f = fopen(path, "rb");
-  if (!f) gu_die_errno(path);
+  if (!f) gpuni_die_errno(path);
 
   if (emit_line_directives) fprintf(out, "#line 1 \"%s\"\n", path);
 
-  while ((line = gu_read_line(f)) != NULL) {
+  while ((line = gpuni_read_line(f)) != NULL) {
     char delim = 0;
     char *inc = NULL;
     ++line_no;
 
-    if (gu_parse_include(line, &delim, &inc)) {
+    if (gpuni_parse_include(line, &delim, &inc)) {
       int is_gpuni = (delim == '"' && (strncmp(inc, "gpuni/", 6) == 0 || strcmp(inc, "gpuni.h") == 0));
       if (is_gpuni) {
-        char *resolved = gu_resolve_gpuni_include(include_dirs, inc);
+        char *resolved = gpuni_resolve_gpuni_include(include_dirs, inc);
         if (!resolved) {
           fprintf(stderr, "render: include not found: \"%s\" (from %s:%lu)\n", inc, path, line_no);
           exit(2);
         }
-        gu_render_file(out, include_dirs, seen_files, resolved, emit_line_directives);
+        gpuni_render_file(out, include_dirs, seen_files, resolved, emit_line_directives);
         if (emit_line_directives) fprintf(out, "#line %lu \"%s\"\n", line_no + 1, path);
         free(resolved);
         free(inc);
@@ -227,10 +227,10 @@ static void gu_render_file(FILE *out,
 
     /* Strip 'extern "C" ' prefix (OpenCL C doesn't support it) */
     {
-      const char *p = gu_skip_ws(line);
+      const char *p = gpuni_skip_ws(line);
       if (strncmp(p, "extern \"C\"", 10) == 0) {
         p += 10;
-        p = gu_skip_ws(p);
+        p = gpuni_skip_ws(p);
         if (*p == '\0' || *p == '\n' || *p == '\r') {
           /* Line is just 'extern "C"' - skip entirely */
           free(line);
@@ -247,25 +247,58 @@ static void gu_render_file(FILE *out,
     free(line);
   }
 
-  if (fclose(f) != 0) gu_die_errno("fclose");
+  if (fclose(f) != 0) gpuni_die_errno("fclose");
 }
 
-/* Extract kernel signatures from rendered source (finds "__global__ void gu_<name>(...)")
-   Returns list of full signatures like "__global__ void gu_saxpy(int n, float* y, ...)" */
-static void gu_find_kernel_signatures(const char *src, gu_str_list *names, gu_str_list *sigs) {
+/* Extract kernel signatures from rendered source.
+   Finds "__global__ [__launch_bounds__(...)] void <name>(...)"
+   Returns list of full signatures like "__global__ void saxpy(int n, float* y, ...)" */
+static void gpuni_find_kernel_signatures(const char *src, gpuni_str_list *names, gpuni_str_list *sigs) {
   const char *p = src;
-  /* Match kernel entry points: __global__ void gu_<name>( */
-  while ((p = strstr(p, "__global__ void gu_")) != NULL) {
+  const char *global_kw = "__global__";
+  const size_t global_kw_len = 10;
+  const char *launch_bounds_kw = "__launch_bounds__";
+  const size_t launch_bounds_kw_len = 17;
+
+  /* Match kernel entry points: __global__ [__launch_bounds__] void <name>( */
+  while ((p = strstr(p, global_kw)) != NULL) {
     const char *sig_start = p;
-    const char *name_start = p + 16;  /* skip "__global__ void " */
-    const char *name_end = name_start;
+    const char *q = p + global_kw_len;
+    const char *name_start;
+    const char *name_end;
     int paren_depth;
     const char *sig_end;
 
+    q = gpuni_skip_ws(q);
+    if (strncmp(q, launch_bounds_kw, launch_bounds_kw_len) == 0) {
+      q += launch_bounds_kw_len;
+      q = gpuni_skip_ws(q);
+      if (*q == '(') {
+        paren_depth = 1;
+        ++q;
+        while (*q && paren_depth > 0) {
+          if (*q == '(') paren_depth++;
+          else if (*q == ')') paren_depth--;
+          ++q;
+        }
+      }
+      q = gpuni_skip_ws(q);
+    }
+
+    if (strncmp(q, "void", 4) != 0) {
+      p = q;
+      continue;
+    }
+    q += 4;
+    q = gpuni_skip_ws(q);
+
+    name_start = q;
+    name_end = name_start;
+
     while (*name_end && ((*name_end >= 'a' && *name_end <= 'z') ||
-                    (*name_end >= 'A' && *name_end <= 'Z') ||
-                    (*name_end >= '0' && *name_end <= '9') ||
-                    *name_end == '_')) ++name_end;
+                         (*name_end >= 'A' && *name_end <= 'Z') ||
+                         (*name_end >= '0' && *name_end <= '9') ||
+                         *name_end == '_')) ++name_end;
     if (*name_end != '(' || name_end == name_start) {
       p = name_end;
       continue;
@@ -274,15 +307,15 @@ static void gu_find_kernel_signatures(const char *src, gu_str_list *names, gu_st
     /* Extract name */
     {
       size_t n = (size_t)(name_end - name_start);
-      char *name = (char *)gu_xmalloc(n + 1);
+      char *name = (char *)gpuni_xmalloc(n + 1);
       memcpy(name, name_start, n);
       name[n] = '\0';
-      if (gu_str_list_contains(names, name)) {
+      if (gpuni_str_list_contains(names, name)) {
         free(name);
         p = name_end;
         continue;
       }
-      gu_str_list_push(names, name);
+      gpuni_str_list_push(names, name);
     }
 
     /* Find matching closing paren */
@@ -297,10 +330,10 @@ static void gu_find_kernel_signatures(const char *src, gu_str_list *names, gu_st
     /* Extract full signature */
     {
       size_t n = (size_t)(sig_end - sig_start);
-      char *sig = (char *)gu_xmalloc(n + 1);
+      char *sig = (char *)gpuni_xmalloc(n + 1);
       memcpy(sig, sig_start, n);
       sig[n] = '\0';
-      gu_str_list_push(sigs, sig);
+      gpuni_str_list_push(sigs, sig);
     }
 
     p = sig_end;
@@ -308,10 +341,10 @@ static void gu_find_kernel_signatures(const char *src, gu_str_list *names, gu_st
 }
 
 /* Simplify signature for extern declaration (remove address space qualifiers) */
-static char *gu_simplify_sig_for_extern(const char *sig) {
+static char *gpuni_simplify_sig_for_extern(const char *sig) {
   /* Remove GU_GLOBAL/GU_LOCAL/GU_CONSTANT/__global/__local/__constant from signature */
   size_t len = strlen(sig);
-  char *out = (char *)gu_xmalloc(len + 1);
+  char *out = (char *)gpuni_xmalloc(len + 1);
   const char *p = sig;
   char *q = out;
 
@@ -330,8 +363,8 @@ static char *gu_simplify_sig_for_extern(const char *sig) {
 }
 
 /* Write C header with source string and extern declarations */
-static void gu_write_header(const char *header_path, const char *src,
-                            const gu_str_list *kernel_names, const gu_str_list *kernel_sigs) {
+static void gpuni_write_header(const char *header_path, const char *src,
+                            const gpuni_str_list *kernel_names, const gpuni_str_list *kernel_sigs) {
   FILE *f;
   size_t i;
   char *guard;
@@ -339,12 +372,12 @@ static void gu_write_header(const char *header_path, const char *src,
   char *p;
 
   f = fopen(header_path, "wb");
-  if (!f) gu_die_errno(header_path);
+  if (!f) gpuni_die_errno(header_path);
 
   /* Generate include guard from filename */
   base = strrchr(header_path, GU_PATH_SEP);
   base = base ? base + 1 : header_path;
-  guard = gu_xstrdup(base);
+  guard = gpuni_xstrdup(base);
   for (p = guard; *p; ++p) {
     if (*p == '.' || *p == '-') *p = '_';
     else if (*p >= 'a' && *p <= 'z') *p = *p - 'a' + 'A';
@@ -360,7 +393,7 @@ static void gu_write_header(const char *header_path, const char *src,
   fprintf(f, "extern \"C\" {\n");
   fprintf(f, "#endif\n");
   for (i = 0; i < kernel_sigs->count; ++i) {
-    char *simple_sig = gu_simplify_sig_for_extern(kernel_sigs->items[i]);
+    char *simple_sig = gpuni_simplify_sig_for_extern(kernel_sigs->items[i]);
     fprintf(f, "%s;\n", simple_sig);
     free(simple_sig);
   }
@@ -375,7 +408,7 @@ static void gu_write_header(const char *header_path, const char *src,
     const char *c;
 
     fprintf(f, "#if defined(GUH_OPENCL)\n");
-    fprintf(f, "static const char %s_gu_source[] =\n", name);
+    fprintf(f, "static const char %s_gpuni_src[] =\n", name);
     fprintf(f, "  \"");
     for (c = src; *c; ++c) {
       switch (*c) {
@@ -389,28 +422,28 @@ static void gu_write_header(const char *header_path, const char *src,
     }
     fprintf(f, "\";\n");
     fprintf(f, "#else\n");
-    fprintf(f, "#define %s_gu_source ((const char*)0)\n", name);
+    fprintf(f, "#define %s_gpuni_src ((const char*)0)\n", name);
     fprintf(f, "#endif\n\n");
   }
 
   fprintf(f, "#endif /* %s */\n", guard);
   free(guard);
 
-  if (fclose(f) != 0) gu_die_errno("fclose");
+  if (fclose(f) != 0) gpuni_die_errno("fclose");
 }
 
-static int gu_ends_with(const char *s, const char *suffix) {
+static int gpuni_ends_with(const char *s, const char *suffix) {
   size_t slen = strlen(s);
   size_t sufflen = strlen(suffix);
   if (sufflen > slen) return 0;
   return strcmp(s + slen - sufflen, suffix) == 0;
 }
 
-static int gu_is_header_path(const char *path) {
-  return gu_ends_with(path, ".gu.h") || gu_ends_with(path, ".h");
+static int gpuni_is_header_path(const char *path) {
+  return gpuni_ends_with(path, ".gu.h") || gpuni_ends_with(path, ".h");
 }
 
-static void gu_usage(FILE *out) {
+static void gpuni_usage(FILE *out) {
   fprintf(out,
           "usage: render [options] <input>\n"
           "\n"
@@ -431,22 +464,22 @@ static void gu_usage(FILE *out) {
           "  render kernel.gu.cu -o kernel.cl     # raw OpenCL (for debugging)\n");
 }
 
-static char *gu_find_default_include_dir(const char *input_path) {
-  char *input_dir = gu_dirname_owned(input_path);
-  char *cursor = gu_abspath_or_dup(input_dir);
+static char *gpuni_find_default_include_dir(const char *input_path) {
+  char *input_dir = gpuni_dirname_owned(input_path);
+  char *cursor = gpuni_abspath_or_dup(input_dir);
   free(input_dir);
 
   for (;;) {
     {
-      char *probe = gu_join_path(cursor, "gpuni.h");
-      int ok = gu_file_exists(probe);
+      char *probe = gpuni_join_path(cursor, "gpuni.h");
+      int ok = gpuni_file_exists(probe);
       free(probe);
       if (ok) return cursor;
     }
     {
-      char *pkg_dir = gu_join_path(cursor, "gpuni");
-      char *probe = gu_join_path(pkg_dir, "gpuni.h");
-      int ok = gu_file_exists(probe);
+      char *pkg_dir = gpuni_join_path(cursor, "gpuni");
+      char *probe = gpuni_join_path(pkg_dir, "gpuni.h");
+      int ok = gpuni_file_exists(probe);
       free(probe);
       if (ok) {
         free(cursor);
@@ -455,9 +488,9 @@ static char *gu_find_default_include_dir(const char *input_path) {
       free(pkg_dir);
     }
     {
-      char *inc_dir = gu_join_path(cursor, "include");
-      char *probe = gu_join_path(inc_dir, "gpuni.h");
-      int ok = gu_file_exists(probe);
+      char *inc_dir = gpuni_join_path(cursor, "include");
+      char *probe = gpuni_join_path(inc_dir, "gpuni.h");
+      int ok = gpuni_file_exists(probe);
       free(probe);
       if (ok) {
         free(cursor);
@@ -469,7 +502,7 @@ static char *gu_find_default_include_dir(const char *input_path) {
     if (strcmp(cursor, "/") == 0 || strcmp(cursor, ".") == 0) break;
 
     {
-      char *parent = gu_dirname_owned(cursor);
+      char *parent = gpuni_dirname_owned(cursor);
       if (strcmp(parent, cursor) == 0) {
         free(parent);
         break;
@@ -480,22 +513,22 @@ static char *gu_find_default_include_dir(const char *input_path) {
   }
 
   free(cursor);
-  return gu_xstrdup(".");
+  return gpuni_xstrdup(".");
 }
 
 /* Read entire file into buffer */
-static char *gu_read_file(const char *path) {
+static char *gpuni_read_file(const char *path) {
   FILE *f = fopen(path, "rb");
   char *buf;
   long len;
-  if (!f) gu_die_errno(path);
+  if (!f) gpuni_die_errno(path);
   fseek(f, 0, SEEK_END);
   len = ftell(f);
   fseek(f, 0, SEEK_SET);
-  buf = (char *)gu_xmalloc((size_t)len + 1);
+  buf = (char *)gpuni_xmalloc((size_t)len + 1);
   if (len > 0 && fread(buf, 1, (size_t)len, f) != (size_t)len) {
     fclose(f);
-    gu_die_errno(path);
+    gpuni_die_errno(path);
   }
   buf[len] = '\0';
   fclose(f);
@@ -503,8 +536,8 @@ static char *gu_read_file(const char *path) {
 }
 
 int main(int argc, char **argv) {
-  gu_str_list include_dirs;
-  gu_str_list seen_files;
+  gpuni_str_list include_dirs;
+  gpuni_str_list seen_files;
   const char *input_path = NULL;
   const char *output_path = NULL;
   int emit_line_directives = 1;
@@ -516,7 +549,7 @@ int main(int argc, char **argv) {
   for (i = 1; i < argc; ++i) {
     const char *arg = argv[i];
     if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
-      gu_usage(stdout);
+      gpuni_usage(stdout);
       return 0;
     }
     if (strcmp(arg, "--line") == 0) {
@@ -528,34 +561,34 @@ int main(int argc, char **argv) {
       continue;
     }
     if (strcmp(arg, "-o") == 0) {
-      if (i + 1 >= argc) gu_die("missing argument for -o");
+      if (i + 1 >= argc) gpuni_die("missing argument for -o");
       output_path = argv[++i];
       continue;
     }
     if (strcmp(arg, "-I") == 0) {
-      if (i + 1 >= argc) gu_die("missing argument for -I");
-      gu_str_list_push(&include_dirs, gu_xstrdup(argv[++i]));
+      if (i + 1 >= argc) gpuni_die("missing argument for -I");
+      gpuni_str_list_push(&include_dirs, gpuni_xstrdup(argv[++i]));
       continue;
     }
     if (strncmp(arg, "-I", 2) == 0) {
-      gu_str_list_push(&include_dirs, gu_xstrdup(arg + 2));
+      gpuni_str_list_push(&include_dirs, gpuni_xstrdup(arg + 2));
       continue;
     }
     if (arg[0] == '-') {
-      gu_usage(stderr);
+      gpuni_usage(stderr);
       return 2;
     }
-    if (input_path) gu_die("multiple input files provided");
+    if (input_path) gpuni_die("multiple input files provided");
     input_path = arg;
   }
 
   if (!input_path) {
-    gu_usage(stderr);
+    gpuni_usage(stderr);
     return 2;
   }
 
   if (include_dirs.count == 0) {
-    gu_str_list_push(&include_dirs, gu_find_default_include_dir(input_path));
+    gpuni_str_list_push(&include_dirs, gpuni_find_default_include_dir(input_path));
   }
 
   /* Determine output mode: header (.h/.gu.h) or raw OpenCL (.cl/stdout) */
@@ -564,39 +597,39 @@ int main(int argc, char **argv) {
     const char *final_header_path = NULL;
 
     /* Detect header output from -o extension */
-    if (output_path && gu_is_header_path(output_path)) {
+    if (output_path && gpuni_is_header_path(output_path)) {
       output_header = 1;
       final_header_path = output_path;
     }
 
     if (output_header) {
       /* Render to temp, then generate header */
-      char *temp_path = gu_xstrdup("/tmp/gpuni_render_XXXXXX");
+      char *temp_path = gpuni_xstrdup("/tmp/gpuni_render_XXXXXX");
       FILE *out;
       char *src;
-      gu_str_list kernel_names;
-      gu_str_list kernel_sigs;
+      gpuni_str_list kernel_names;
+      gpuni_str_list kernel_sigs;
 
       {
         int fd = mkstemp(temp_path);
-        if (fd < 0) gu_die_errno("mkstemp");
+        if (fd < 0) gpuni_die_errno("mkstemp");
         out = fdopen(fd, "wb");
-        if (!out) { close(fd); gu_die_errno("fdopen"); }
+        if (!out) { close(fd); gpuni_die_errno("fdopen"); }
       }
 
-      gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
-      if (fclose(out) != 0) gu_die_errno("fclose");
+      gpuni_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+      if (fclose(out) != 0) gpuni_die_errno("fclose");
 
-      src = gu_read_file(temp_path);
+      src = gpuni_read_file(temp_path);
       memset(&kernel_names, 0, sizeof(kernel_names));
       memset(&kernel_sigs, 0, sizeof(kernel_sigs));
-      gu_find_kernel_signatures(src, &kernel_names, &kernel_sigs);
+      gpuni_find_kernel_signatures(src, &kernel_names, &kernel_sigs);
       if (kernel_names.count == 0) {
-        fprintf(stderr, "render: warning: no kernels found (void gu_*)\n");
+        fprintf(stderr, "render: warning: no kernels found (__global__ void <name>(...))\n");
       }
-      gu_write_header(final_header_path, src, &kernel_names, &kernel_sigs);
-      gu_str_list_free(&kernel_names);
-      gu_str_list_free(&kernel_sigs);
+      gpuni_write_header(final_header_path, src, &kernel_names, &kernel_sigs);
+      gpuni_str_list_free(&kernel_names);
+      gpuni_str_list_free(&kernel_sigs);
       free(src);
       unlink(temp_path);
       free(temp_path);
@@ -605,14 +638,14 @@ int main(int argc, char **argv) {
       FILE *out = stdout;
       if (output_path) {
         out = fopen(output_path, "wb");
-        if (!out) gu_die_errno(output_path);
+        if (!out) gpuni_die_errno(output_path);
       }
-      gu_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
-      if (output_path && fclose(out) != 0) gu_die_errno("fclose");
+      gpuni_render_file(out, &include_dirs, &seen_files, input_path, emit_line_directives);
+      if (output_path && fclose(out) != 0) gpuni_die_errno("fclose");
     }
   }
 
-  gu_str_list_free(&seen_files);
-  gu_str_list_free(&include_dirs);
+  gpuni_str_list_free(&seen_files);
+  gpuni_str_list_free(&include_dirs);
   return 0;
 }

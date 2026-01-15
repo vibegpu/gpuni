@@ -35,6 +35,8 @@ extern "C" __global__ void saxpy(int n,
 **Required:**
 - Entry: `extern "C" __global__ void <name>(...)` (prevents C++ name mangling)
 - Annotate pointers: `__global` / `__local` / `__constant` (including aliases)
+  - Note: `__global__` (kernel modifier) ≠ `__global` (pointer address space)
+  - Aliases must retain address space: `__global float* alias = x;`
 
 **Avoid:** templates, classes, `__shfl*`, `__ballot*`, `float3` in buffers, divergent `__syncthreads()`
 
@@ -75,7 +77,7 @@ int main() {
   Memcpy(d_x, h_x, n * sizeof(float), H2D);
   Memcpy(d_y, h_y, n * sizeof(float), H2D);
 
-  auto k = GetKernel(saxpy);  // cache and reuse; avoid repeated JIT
+  auto k = GetKernel(saxpy);  // auto-cached; repeated calls return same kernel
   Launch(k, grid, block, smem, n, d_y, d_x, a);  // smem before kernel args
 
   DeviceSync();
@@ -93,19 +95,14 @@ int main() {
 | Device | `SetDevice(id)`, `GetDevice()`, `GetDeviceCount()`, `DeviceSync()` |
 | Memory | `Malloc<T>(n)`, `Free(p)`, `Memset(p,v,bytes)`, `MallocHost<T>(n)`, `FreeHost(p)` |
 | Copy | `Memcpy(dst,src,bytes,kind)`, `MemcpyAsync(...,stream)` |
-| Kernel | `GetKernel(fn)`, `Launch(k, grid, block, args...)` |
+| Kernel | `GetKernel(fn)`, `Launch(k, grid, block, [smem,] [stream,] args...)` |
 | Stream | `stream s; s.sync();` or `StreamSynchronize(s)` |
 | Event | `event e; e.record(s); e.sync();` or `EventRecord(e,s); EventSynchronize(e)` |
 | Timing | `ElapsedTime(e1, e2)` |
 | Error | `Error_t`, `Success`, `GetLastError()`, `GetErrorString(e)`, `Check(expr)` |
-| Dim3 | `dim3(x,y,z)` for 3D grid/block in `Launch(k, dim3 grid, dim3 block, ...)` |
+| Dim3 | `dim3(x,y,z)` — grid/block can be `int` or `dim3` |
 
-**MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H` (or `MemcpyHostToDevice`, `MemcpyDeviceToHost`, `MemcpyDeviceToDevice`, `MemcpyHostToHost`)
-**Launch overloads:** All combinations of `int` or `dim3` for grid/block, with optional `smem` and/or `stream`:
-- `Launch(k, g, b, args)`, `Launch(k, dim3, dim3, args)`
-- `Launch(k, g, b, smem, args)`, `Launch(k, dim3, dim3, smem, args)`
-- `Launch(k, g, b, stream, args)`, `Launch(k, dim3, dim3, stream, args)`
-- `Launch(k, g, b, smem, stream, args)`, `Launch(k, dim3, dim3, smem, stream, args)`
+**MemcpyKind:** `H2D`, `D2H`, `D2D`, `H2H` (aliases: `MemcpyHostToDevice`, `MemcpyDeviceToHost`, `MemcpyDeviceToDevice`, `MemcpyHostToHost`)
 
 ## Build
 
