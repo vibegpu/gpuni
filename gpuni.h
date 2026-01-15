@@ -639,7 +639,7 @@ static inline const char* GetErrorString(Error_t e) {
 #endif
 }
 
-#define GU_CHECK(expr) do { \
+#define Check(expr) do { \
   gu::Error_t _e = (expr); \
   if (_e != gu::Success) fprintf(stderr, "gpuni error %d: %s at %s:%d\n", _e, gu::GetErrorString(_e), __FILE__, __LINE__); \
 } while(0)
